@@ -517,6 +517,7 @@ func TestThinkingControlSupported(t *testing.T) {
 		{"hermes", false},  // ACP adapter drops reasoning entirely (MUL-5770)
 		{"kimi", true},     // dynamic catalog; ACP session/set_config_option applies it
 		{"qwenpaw", false},
+		{"prime", false}, // model/reasoning fixed process-globally, never read over ACP
 		{"", false},
 		{"not-a-runtime", false},
 	}
