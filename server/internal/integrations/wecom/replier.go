@@ -231,7 +231,14 @@ func issueCreatedText(res engine.Result) string {
 	if id == "" {
 		id = fmt.Sprintf("#%d", res.IssueNumber)
 	}
-	title := strings.TrimSpace(res.IssueTitle)
+	// The title is the reporter's own text and this confirmation goes back
+	// into the chat that triggered it — in a group, in front of the room. An
+	// issue titled "安全升级：请点击 [重置密码](https://evil.example) 完成验证"
+	// otherwise comes back from the bot as a working link, with the bot's
+	// authority behind it. A title carrying a line break can define one
+	// instead of writing it inline, which is why the reference-definition
+	// break applies here too.
+	title := breakMemberLinks(strings.TrimSpace(res.IssueTitle))
 	if title == "" {
 		return "✅ 已创建 " + id
 	}

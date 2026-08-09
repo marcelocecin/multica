@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStaticModelCatalogsHaveValidEntries(t *testing.T) {
@@ -644,6 +645,131 @@ func TestCachedDiscoveryDoesNotCacheEmpty(t *testing.T) {
 	}
 }
 
+func writeFakePiRPCModelsBinary(t *testing.T) string {
+	t.Helper()
+	fakePath := filepath.Join(t.TempDir(), "pi")
+	script := `#!/bin/sh
+if [ "$1" = "--mode" ] && [ "$2" = "rpc" ]; then
+  IFS= read -r _state_request
+  IFS= read -r _models_request
+  printf '%s\n' '{"id":"multica-state","type":"response","command":"get_state","success":true,"data":{"model":{"id":"gpt-5.6-luna","name":"Luna","provider":"openai-multi","reasoning":true,"thinkingLevelMap":{"off":"none","minimal":"none","low":"low","medium":null,"high":"high","xhigh":"xhigh","max":"max"}},"thinkingLevel":"max"}}'
+  printf '%s\n' '{"id":"multica-models","type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"gpt-5.6-sol","name":"Sol","provider":"openai-multi","reasoning":true},{"id":"gpt-5.6-luna","name":"Luna","provider":"openai-multi","reasoning":true,"thinkingLevelMap":{"off":"none","minimal":"none","low":"low","medium":null,"high":"high","xhigh":"xhigh","max":"max"}},{"id":"plain-chat","name":"Plain chat","provider":"openai-multi","reasoning":false}]}}'
+  exit 0
+fi
+printf '%s\n' 'provider model context max-out thinking images'
+printf '%s\n' 'fallback fallback-model 128K 8K yes no'
+`
+	writeTestExecutable(t, fakePath, []byte(script))
+	return fakePath
+}
+
+func TestDiscoverPiModelsRPCThinkingCatalog(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake pi binary is a /bin/sh script")
+	}
+	fakePath := writeFakePiRPCModelsBinary(t)
+
+	models, err := discoverPiModels(context.Background(), fakePath)
+	if err != nil {
+		t.Fatalf("discoverPiModels: %v", err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("expected 3 RPC models, got %d: %+v", len(models), models)
+	}
+	byID := make(map[string]Model, len(models))
+	for _, model := range models {
+		byID[model.ID] = model
+	}
+
+	sol := byID["openai-multi/gpt-5.6-sol"]
+	if sol.Thinking == nil || !hasThinkingLevel(sol.Thinking, "medium") || hasThinkingLevel(sol.Thinking, "xhigh") || hasThinkingLevel(sol.Thinking, "max") {
+		t.Fatalf("unexpected Sol thinking catalog: %+v", sol.Thinking)
+	}
+	luna := byID["openai-multi/gpt-5.6-luna"]
+	if !luna.Default {
+		t.Fatal("current Pi model must be marked as the runtime default")
+	}
+	if luna.Thinking == nil || luna.Thinking.DefaultLevel != "max" {
+		t.Fatalf("unexpected Luna thinking default: %+v", luna.Thinking)
+	}
+	for _, level := range []string{"off", "minimal", "low", "high", "xhigh", "max"} {
+		if !hasThinkingLevel(luna.Thinking, level) {
+			t.Errorf("Luna missing level %q: %+v", level, luna.Thinking)
+		}
+	}
+	if hasThinkingLevel(luna.Thinking, "medium") {
+		t.Errorf("explicitly null Pi level must stay disabled: %+v", luna.Thinking)
+	}
+	if got := byID["openai-multi/plain-chat"].Thinking; got != nil {
+		t.Fatalf("non-reasoning Pi model must not expose a picker: %+v", got)
+	}
+	if _, ok := byID["fallback/fallback-model"]; ok {
+		t.Fatal("successful RPC discovery must not append the table fallback")
+	}
+}
+
+func TestDiscoverPiModelsIDLessRPCErrorFallsBack(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake pi binary is a /bin/sh script")
+	}
+
+	fakePath := filepath.Join(t.TempDir(), "pi")
+	script := `#!/bin/sh
+if [ "$1" = "--mode" ] && [ "$2" = "rpc" ]; then
+  IFS= read -r _state_request
+  IFS= read -r _models_request
+  printf '%s\n' '{"id":"multica-state","type":"response","command":"get_state","success":true,"data":{"thinkingLevel":"high"}}'
+  printf '%s\n' '{"type":"response","command":"get_available_models","success":false,"error":"Unknown command: get_available_models"}'
+  cat >/dev/null
+  exit 0
+fi
+printf '%s\n' 'provider model context max-out thinking images'
+printf '%s\n' 'fallback fallback-model 128K 8K yes no'
+`
+	writeTestExecutable(t, fakePath, []byte(script))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	models, err := discoverPiModels(ctx, fakePath)
+	if err != nil {
+		t.Fatalf("discoverPiModels: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "fallback/fallback-model" {
+		t.Fatalf("ID-less RPC error must terminate that request and use the table fallback, got %+v", models)
+	}
+}
+
+func TestDiscoverPiModelsHungRPCPreservesTableFallbackBudget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake pi binary is a /bin/sh script")
+	}
+
+	fakePath := filepath.Join(t.TempDir(), "pi")
+	script := `#!/bin/sh
+if [ "$1" = "--mode" ] && [ "$2" = "rpc" ]; then
+  IFS= read -r _state_request
+  IFS= read -r _models_request
+  exec sleep 30
+fi
+printf '%s\n' 'provider model context max-out thinking images'
+printf '%s\n' 'fallback fallback-model 128K 8K yes no'
+`
+	writeTestExecutable(t, fakePath, []byte(script))
+
+	started := time.Now()
+	models, err := discoverPiModelsWithin(context.Background(), fakePath, 100*time.Millisecond, time.Second)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("discoverPiModels: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "fallback/fallback-model" {
+		t.Fatalf("hung RPC must leave time for the table fallback, got %+v after %s", models, elapsed)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("RPC phase consumed the table fallback budget: elapsed %s", elapsed)
+	}
+}
+
 func TestParsePiModels(t *testing.T) {
 	input := `openai:gpt-4o
 anthropic:claude-opus-4-7
@@ -787,6 +913,9 @@ func TestDiscoverPiModelsNonZeroExit(t *testing.T) {
 			// bogus entry, no header row.
 			if len(models) != 1 || models[0].ID != "glm-coding-plan/glm-4.7" {
 				t.Fatalf("expected exactly [glm-coding-plan/glm-4.7] despite non-zero exit, got %+v", models)
+			}
+			if models[0].Thinking != nil {
+				t.Fatalf("human-table fallback must not guess thinking levels: %+v", models[0].Thinking)
 			}
 		})
 	}
