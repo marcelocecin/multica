@@ -284,6 +284,7 @@ var SupportedTypes = []string{
 	"grok",
 	"qwen",
 	"qwenpaw",
+	"prime",
 }
 
 // IsSupportedType reports whether agentType is in the SupportedTypes whitelist.
@@ -369,8 +370,10 @@ func New(agentType string, cfg Config) (Backend, error) {
 		return &qwenBackend{cfg: cfg}, nil
 	case "qwenpaw":
 		return &qwenpawBackend{cfg: cfg}, nil
+	case "prime":
+		return &primeBackend{cfg: cfg}, nil
 	default:
-		return nil, fmt.Errorf("unknown agent type: %q (supported: claude, codebuddy, codex, copilot, opencode, deveco, openclaw, hermes, pi, cursor, kimi, reasonix, kiro, antigravity, qoder, qoderclicn, traecli, grok, qwen, qwenpaw)", agentType)
+		return nil, fmt.Errorf("unknown agent type: %q (supported: claude, codebuddy, codex, copilot, opencode, deveco, openclaw, hermes, pi, cursor, kimi, reasonix, kiro, antigravity, qoder, qoderclicn, traecli, grok, qwen, qwenpaw, prime)", agentType)
 	}
 }
 
@@ -406,6 +409,7 @@ var launchHeaders = map[string]string{
 	"grok":        "grok agent stdio",
 	"qwen":        "qwen -p (stream-json)",
 	"qwenpaw":     "qwenpaw acp",
+	"prime":       "prime-agent --mode acp",
 }
 
 // LaunchHeader returns the user-visible launch skeleton for agentType, or an
