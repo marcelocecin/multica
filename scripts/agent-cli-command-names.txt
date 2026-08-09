@@ -18,3 +18,4 @@ qoderclicn
 reasonix
 traecli
 qwenpaw
+prime-agent
