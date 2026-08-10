@@ -81,9 +81,11 @@ func primeTerminateGrace() time.Duration {
 //     `session_info_update` notifications after `session/prompt` returns —
 //     ACP has no RPC to wait for these to reach a terminal state. Phase 1
 //     does not track them: Execute sets RLM_MAX_DEPTH=0 in the child
-//     process's environment, which is the sole gate `_startRlmChildRun`
-//     checks before spawning a child, so no subagent can ever be created
-//     (see the RLM_MAX_DEPTH doc comment below for the full citation). A
+//     process's environment, which `_startRlmChildRun` checks against the
+//     current session's rlmDepth before spawning a child, disabling
+//     subagents on the default path — see the RLM_MAX_DEPTH doc comment
+//     below for the full precedence chain and its one known gap (a
+//     pre-existing global Prime Agent setting can outrank this env var). A
 //     future phase may track subagents to a terminal state instead of
 //     disabling them; that is out of scope here.
 type primeBackend struct {
@@ -137,15 +139,42 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		}
 	}
 	b.cfg.Logger.Info("prime-agent acp starting", "cwd", opts.Cwd, "agents_md_present", agentsMDPresent)
-	// RLM_MAX_DEPTH=0 disables Prime's rlm.run subagent tool for this process.
-	// Verified directly against prime-agent v0.7.1 source: _startRlmChildRun
-	// (the sole entry point every rlm.run call goes through) refuses to spawn
-	// a child whenever the current session's rlmDepth >= rlmMaxDepth, and
-	// rlmMaxDepth resolves from (in order) an explicit per-session value, the
-	// RLM_MAX_DEPTH env var, then a default of 1 — ACP mode's session/new has
-	// no field to set this per session, so the env var is the only lever
-	// available to an ACP client. With it forced to 0, the top-level session
-	// (rlmDepth 0) always fails the 0 >= 0 check before any child is created.
+	// RLM_MAX_DEPTH=0 disables Prime's rlm.run subagent tool on the default
+	// path. Verified directly against prime-agent v0.7.1 source:
+	// _startRlmChildRun (the sole entry point every rlm.run call goes
+	// through) refuses to spawn a child whenever the current session's
+	// rlmDepth >= rlmMaxDepth. With rlmMaxDepth resolved to 0, the top-level
+	// session (rlmDepth 0) always fails that check before any child is
+	// created.
+	//
+	// rlmMaxDepth's real resolution order (_resolveRlmMaxDepth,
+	// agent-session.ts:1573) is, in priority: (1) state persisted on the
+	// session's own branch — never present here, since Execute always takes
+	// the fresh session/new path and never resumes a branch; (2) an explicit
+	// per-session override threaded through session construction — ACP mode
+	// never sets this (verified: no "rlmMaxDepth" reference anywhere under
+	// modes/acp/); (3) a GLOBAL setting persisted at
+	// ~/.prime/agent/settings.json (settingsManager.getRlmMaxDepth), which
+	// the SAME LOCAL USER can set outside Multica entirely via Prime's own
+	// interactive/daemon mode with `/rlm-max-depth <n> --global`; (4) this
+	// RLM_MAX_DEPTH env var; (5) a default of 1.
+	//
+	// This env var is therefore NOT the top of that chain and is not an
+	// absolute guarantee: a pre-existing global rlmMaxDepth the operating
+	// user separately configured on this machine takes precedence over
+	// RLM_MAX_DEPTH=0 and would silently re-enable subagents for
+	// Multica-driven runs too, since Multica does not isolate
+	// PRIME_AGENT_CODING_AGENT_DIR per task and so shares the same
+	// settings.json a direct/manual `prime-agent` invocation would use. This
+	// requires deliberate, out-of-band configuration by that user and is not
+	// reachable through the ACP wire protocol itself — the
+	// PrimeAgentSessionMeta.rlmMaxDepth/rlmDepth fields declared in
+	// acp-meta.ts are outbound telemetry only (never read as client input
+	// anywhere under modes/acp/) — so it is tracked as a P2 follow-up, not a
+	// Phase 1 regression. On a host with no such pre-existing global
+	// override — the default, and the case this provider's tests exercise —
+	// RLM_MAX_DEPTH=0 is effective.
+	//
 	// This also removes the subagent-guidance section from Prime's own system
 	// prompt (allowRecursion is threaded into buildRlmPrompt), so the model
 	// is never told a capability exists that is actually blocked, and it does
@@ -153,7 +182,8 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// synchronous code path (completeSimple) that never calls
 	// _startRlmChildRun. See
 	// https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/core/agent-session.ts#L9599
-	// (the depth check) and
+	// (the depth check), the same file's _resolveRlmMaxDepth at L1573 (the
+	// precedence chain above), and
 	// https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/core/system-prompt.ts
 	// (the prompt gating).
 	cmd.Env = append(buildEnv(b.cfg.Env), "RLM_MAX_DEPTH=0")

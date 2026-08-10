@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -221,17 +222,62 @@ func TestPrimeRealACPReadsAgentsMD(t *testing.T) {
 	}
 }
 
+// primeGlobalRlmMaxDepthConfigured is a best-effort, read-only check for the
+// one known gap in RLM_MAX_DEPTH=0's guarantee (see the precedence-chain
+// comment on primeBackend.Execute in prime.go): prime-agent's own
+// ~/.prime/agent/settings.json can carry a GLOBAL rlmMaxDepth (set via
+// `/rlm-max-depth <n> --global` in Prime's own interactive/daemon mode,
+// outside Multica entirely) that outranks the env var. It never writes
+// anything, never touches PRIME_AGENT_CODING_AGENT_DIR, and is not an
+// enforcement mechanism — it only tells this specific test whether its
+// premise (no such override exists on the machine running it) actually
+// holds, so a PASS here means what it claims to mean instead of silently
+// passing for the wrong reason on a machine where the override is present
+// but happens not to matter for this particular prompt.
+func primeGlobalRlmMaxDepthConfigured(t *testing.T) bool {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	agentDir := strings.TrimSpace(os.Getenv("PRIME_AGENT_CODING_AGENT_DIR"))
+	if agentDir == "" {
+		agentDir = filepath.Join(home, ".prime", "agent")
+	}
+	raw, err := os.ReadFile(filepath.Join(agentDir, "settings.json"))
+	if err != nil {
+		return false // no readable settings file => no override possible
+	}
+	var settings struct {
+		RlmMaxDepth *int `json:"rlmMaxDepth"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return false // unparsable => cannot assert an override is present
+	}
+	return settings.RlmMaxDepth != nil
+}
+
 // TestPrimeRealACPSubagentsAreDisabled proves, against the real binary, the
-// blocker-1 fix: with RLM_MAX_DEPTH=0 in the environment (set unconditionally
-// by primeBackend.Execute), an explicit attempt to spawn an RLM subagent via
-// the IPython-hosted rlm.run tool must fail immediately with the depth-limit
-// error rather than succeed — and the turn must still complete normally
-// (not hang, not crash), since Phase 1 disables subagents outright instead
-// of tracking them to a terminal state.
+// blocker-1 fix on its default path: with RLM_MAX_DEPTH=0 in the environment
+// (set unconditionally by primeBackend.Execute), an explicit attempt to spawn
+// an RLM subagent via the IPython-hosted rlm.run tool must fail immediately
+// with the depth-limit error rather than succeed — and the turn must still
+// complete normally (not hang, not crash), since Phase 1 disables subagents
+// outright instead of tracking them to a terminal state.
+//
+// This only proves the default path: RLM_MAX_DEPTH=0 is not the top of
+// prime-agent's rlmMaxDepth precedence chain (see prime.go), so this test
+// requires — and checks — that the machine running it has no pre-existing
+// GLOBAL rlmMaxDepth override in prime-agent's own settings.json. That
+// residual gap is a documented P2 follow-up, not something this test (or
+// Multica) can or should paper over.
 func TestPrimeRealACPSubagentsAreDisabled(t *testing.T) {
 	requireRealAgentSmoke(t)
 	if testing.Short() {
 		t.Skip("skipping real-binary smoke test in -short mode")
+	}
+	if primeGlobalRlmMaxDepthConfigured(t) {
+		t.Skip("prime-agent's ~/.prime/agent/settings.json has a global rlmMaxDepth override on this machine, which takes precedence over RLM_MAX_DEPTH=0 — skipping so a pass here cannot be mistaken for proof that Multica's env var alone disables subagents (see the precedence-chain comment on primeBackend.Execute)")
 	}
 
 	path, err := exec.LookPath("prime-agent")
