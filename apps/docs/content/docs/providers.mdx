@@ -35,6 +35,7 @@ Install steps are in [Install AI coding tools](/install-agent-runtime).
 | OpenCode | `opencode` | ✓ | ✓ | `.opencode/skills/` |
 | Pi | `pi` | ✓ | — | `.pi/skills/` |
 | Oh-My-Pi | `omp` | ✓ | — | `.omp/skills/` |
+| Prime Agent | `prime-agent` | — | — | `.prime/agent/skills/` |
 | Qoder CLI | `qodercli` | ✓ | ✓ | `.qoder/skills/` |
 | Qoder CN CLI | `qoderclicn` | ✓ | ✓ | `.qoder/skills/` |
 | Qwen Code | `qwen` | ✓ | ✓ | `.qwen/skills/` |
@@ -50,7 +51,7 @@ When you create an agent, the model list comes from the corresponding runtime. S
 
 If you do not pick a model, Multica uses the tool's own default. If the list is empty, confirm the runtime is online and the tool is signed in, then refresh the model list.
 
-QwenPaw is the one exception: it does not accept a model chosen from Multica, so the picker is inert and shows "Managed by runtime". Choose the model in QwenPaw's own configuration instead. An empty model list is expected there and is not a sign that the runtime is offline.
+QwenPaw and Prime Agent are the exceptions: neither accepts a model chosen from Multica, so the picker is inert and shows "Managed by runtime". Choose the model in the tool's own configuration instead. An empty model list is expected there and is not a sign that the runtime is offline.
 
 <Callout type="info">
 Different tools may use different model names. After switching AI coding tools, the previous model value is invalid in the new tool and needs to be selected again.
@@ -58,15 +59,17 @@ Different tools may use different model names. After switching AI coding tools, 
 
 ## Session resumption
 
-All of these tools support continuing an existing session in a later run. The prerequisites are that the original session still exists and the task is executed by a runtime that can reach it.
+Most of these tools support continuing an existing session in a later run. The prerequisites are that the original session still exists and the task is executed by a runtime that can reach it.
 
 Multica stores the session identifier the tool returns. The next time work continues on the same issue, the runtime tries to resume that session; when it cannot, it creates a new session and keeps going. Pi stores a local session file path, so it depends more on the original computer and file.
+
+Prime Agent is the exception: it hosts exactly one session per run and has no resume mechanism at all, so every run starts a fresh session regardless of prior history on the same issue.
 
 Retry and session-resumption rules are in [Tasks](/tasks#manual-retry).
 
 ## MCP configuration
 
-Antigravity, GitHub Copilot CLI, DevEco Code, and Pi do not read the MCP configuration on an agent yet, so the field is not shown when creating agents for them.
+Antigravity, GitHub Copilot CLI, DevEco Code, Pi, and Prime Agent do not read the MCP configuration on an agent yet, so the field is not shown when creating agents for them.
 
 <Callout type="warning">
 MCP server commands, arguments, and environment variables are saved server-side with the agent configuration. Do not write local credentials you have no need to share into the configuration.

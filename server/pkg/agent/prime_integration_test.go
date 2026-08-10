@@ -220,3 +220,69 @@ func TestPrimeRealACPReadsAgentsMD(t *testing.T) {
 		t.Fatal("timeout waiting for real prime-agent AGENTS.md result")
 	}
 }
+
+// TestPrimeRealACPSubagentsAreDisabled proves, against the real binary, the
+// blocker-1 fix: with RLM_MAX_DEPTH=0 in the environment (set unconditionally
+// by primeBackend.Execute), an explicit attempt to spawn an RLM subagent via
+// the IPython-hosted rlm.run tool must fail immediately with the depth-limit
+// error rather than succeed — and the turn must still complete normally
+// (not hang, not crash), since Phase 1 disables subagents outright instead
+// of tracking them to a terminal state.
+func TestPrimeRealACPSubagentsAreDisabled(t *testing.T) {
+	requireRealAgentSmoke(t)
+	if testing.Short() {
+		t.Skip("skipping real-binary smoke test in -short mode")
+	}
+
+	path, err := exec.LookPath("prime-agent")
+	if err != nil {
+		t.Skip("prime-agent not on PATH; skipping real-binary smoke test")
+	}
+
+	backend, err := New("prime", Config{
+		ExecutablePath: path,
+		Logger:         slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	session, err := backend.Execute(ctx,
+		"Using the ipython tool, call rlm.run(\"say hi\") to spawn a subagent. "+
+			"It will raise an exception because recursion is disabled here — catch it "+
+			"and reply with exactly: BLOCKED <exception message>. Do not attempt any "+
+			"other way to run a subagent.",
+		ExecOptions{
+			Cwd:     t.TempDir(),
+			Timeout: 80 * time.Second,
+		},
+	)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	go func() {
+		for range session.Messages {
+		}
+	}()
+
+	select {
+	case result := <-session.Result:
+		if result.Status != "completed" {
+			t.Fatalf("real prime-agent subagent-blocked run did not complete: status=%q error=%q", result.Status, result.Error)
+		}
+		lower := strings.ToLower(result.Output)
+		if !strings.Contains(lower, "blocked") {
+			t.Fatalf("expected output to acknowledge the blocked subagent attempt, got %q", result.Output)
+		}
+		if !strings.Contains(lower, "recursion") && !strings.Contains(lower, "rlm_max_depth") && !strings.Contains(lower, "rlm max depth") {
+			t.Fatalf("expected output to reference the RLM recursion depth limit, got %q", result.Output)
+		}
+		t.Logf("real prime-agent subagent-blocked smoke OK: output=%q", result.Output)
+	case <-time.After(90 * time.Second):
+		t.Fatal("timeout waiting for real prime-agent subagent-blocked result")
+	}
+}

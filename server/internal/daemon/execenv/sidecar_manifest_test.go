@@ -159,6 +159,7 @@ var allFileBasedProviders = []string{
 	"antigravity",
 	"qwen",
 	"qwenpaw",
+	"prime",
 }
 
 // TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir is the headline

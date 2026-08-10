@@ -30,6 +30,7 @@ Multica currently detects these commands:
 | OpenCode | `opencode` | [OpenCode quickstart](https://opencode.ai/en/docs) |
 | Pi coding agent | `pi` | [Pi coding agent](https://github.com/earendil-works/pi) |
 | Oh-My-Pi | `omp` | [Oh-My-Pi install](https://omp.sh) |
+| Prime Agent | `prime-agent` | [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent) |
 | Qoder CLI | `qodercli` | [Qoder CLI quickstart](https://docs.qoder.com/en/cli/quick-start) |
 | Qoder CN CLI | `qoderclicn` | [Qoder CN CLI quickstart](https://help.aliyun.com/en/lingma/qodercli-cn/user-guide/qoder-cli-cn-get-started-quickly) |
 | Qwen Code | `qwen` | [Qwen Code](https://github.com/QwenLM/qwen-code) |
@@ -46,6 +47,8 @@ After installing, launch the tool once in a terminal on its own and complete its
 For Reasonix, run `reasonix setup` and configure a default provider and model before starting the daemon.
 
 For QwenPaw, choose the provider and model in QwenPaw's own configuration. Multica cannot override a QwenPaw model at run time.
+
+For Prime Agent, sign in (subscription or API key) and choose the model in Prime Agent's own configuration first. Multica cannot select a Prime Agent model at run time, and Prime Agent does not resume a prior session or read Multica-managed MCP configuration — see [AI coding tools comparison](/providers).
 
 Those login credentials are stored locally by the tool itself. Multica never receives login tokens from Claude, Codex, Cursor, or any other CLI.
 

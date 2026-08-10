@@ -60,8 +60,15 @@ func TestPrimeLaunchHeader(t *testing.T) {
 // session/close — and deliberately NOT session/resume or session/load,
 // mirroring the real binary (see okf/prime-agent/session-model.md).
 func fakePrimeACPScript() string {
-	return `#!/bin/sh
-while IFS= read -r line; do
+	return "#!/bin/sh\n" + fakePrimeACPScriptBody()
+}
+
+// fakePrimeACPScriptBody is the shebang-less remainder of fakePrimeACPScript,
+// factored out so tests that need to prepend a setup line (like capturing the
+// process environment) can build "#!/bin/sh\n<setup>\n" + this without
+// duplicating the whole ACP dialogue.
+func fakePrimeACPScriptBody() string {
+	return `while IFS= read -r line; do
   if [ -n "$PRIME_REQUESTS_FILE" ]; then
     printf '%s\n' "$line" >> "$PRIME_REQUESTS_FILE"
   fi
@@ -604,6 +611,48 @@ done
 	}
 	if extra > custom {
 		t.Fatalf("ExtraArgs must precede CustomArgs, got:\n%s", args)
+	}
+}
+
+// TestPrimeSetsRlmMaxDepthZero pins the blocker-1 fix: Prime's IPython-hosted
+// rlm.run tool can spawn a fire-and-forget subagent that keeps streaming
+// after session/prompt returns, which ACP has no RPC to wait for. Phase 1
+// disables the capability entirely rather than tracking it, by forcing
+// RLM_MAX_DEPTH=0 into the spawned process's environment — verified against
+// prime-agent v0.7.1 source to be the sole gate _startRlmChildRun checks
+// before creating a child (see the primeBackend doc comment). This test
+// proves the env var actually reaches the child process.
+func TestPrimeSetsRlmMaxDepthZero(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	captureFile := filepath.Join(tempDir, "env-capture.txt")
+	script := "#!/bin/sh\nenv > \"$PRIME_ENV_CAPTURE_FILE\"\n" + fakePrimeACPScriptBody()
+	bin := writeFakePrimeScript(t, script)
+
+	b, err := New("prime", Config{
+		ExecutablePath: bin,
+		Logger:         testLogger(),
+		Env:            map[string]string{"PRIME_ENV_CAPTURE_FILE": captureFile},
+	})
+	if err != nil {
+		t.Fatalf("New(prime) error: %v", err)
+	}
+
+	ctx := context.Background()
+	session, err := b.Execute(ctx, "test prompt", ExecOptions{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	for range session.Messages {
+	}
+	result := <-session.Result
+	if result.Status != "completed" {
+		t.Fatalf("expected completed, got status=%q error=%q", result.Status, result.Error)
+	}
+
+	captured := readCapturedEnv(t, captureFile)
+	if got, ok := captured["RLM_MAX_DEPTH"]; !ok || got != "0" {
+		t.Fatalf("expected RLM_MAX_DEPTH=0 in the spawned process env, got %q (present=%v)", got, ok)
 	}
 }
 

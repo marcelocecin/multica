@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -24,6 +26,18 @@ var primeBlockedArgs = map[string]blockedArgMode{
 	"--cwd":  blockedWithValue,
 }
 
+// primeTerminateGraceNanos optionally overrides, in nanoseconds, how long a
+// cancelled prime-agent process group is given to exit after SIGTERM before
+// it is SIGKILLed. Set via atomic store in tests; zero keeps the default.
+var primeTerminateGraceNanos atomic.Int64
+
+func primeTerminateGrace() time.Duration {
+	if n := primeTerminateGraceNanos.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	return 5 * time.Second
+}
+
 // primeBackend implements Backend by spawning `prime-agent --mode acp` and
 // communicating via the ACP (Agent Client Protocol) JSON-RPC 2.0 over
 // stdin/stdout.
@@ -32,19 +46,21 @@ var primeBlockedArgs = map[string]blockedArgMode{
 // Hermes/Kimi/QwenPaw, so this reuses the shared hermesClient ACP transport
 // — only the binary, launch args, and session semantics differ.
 //
-// Notable contract with Prime Agent v0.7.1 (see okf/prime-agent/ and
-// REPORT.md for the full source-verified investigation this is built from):
+// Notable contract with Prime Agent v0.7.1 (verified against
+// https://github.com/PrimeIntellect-ai/prime-agent/tree/v0.7.1 — links below
+// point at specific files/lines on that tag):
 //   - `initialize` reports `agentCapabilities.loadSession: false` and there
 //     is no `session/resume`/`session/load` method on the wire at all — Prime
 //     hosts exactly one session per ACP connection. Execute therefore never
 //     attempts a resume-style call regardless of opts.ResumeSessionID; every
-//     turn is a fresh `session/new`.
+//     turn is a fresh `session/new`. See
+//     https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/modes/acp/acp-mode.ts
 //   - Prime's real working directory is fixed at OS process-spawn time
 //     (via cmd.Dir here), not by the `cwd` sent in `session/new` — that
 //     field is only compared against the real one and, on mismatch,
 //     reported back informationally in `_meta`. Setting cmd.Dir = opts.Cwd
 //     (as every backend already does) keeps the two in sync, so no mismatch
-//     is expected in normal operation.
+//     is expected in normal operation. Same file as above.
 //   - Prime never reads `session/new`'s `mcpServers` content or a model field
 //     on `session/new`/`session/prompt` — MCP injection and per-session model
 //     selection are Phase-1 non-goals for this provider (see
@@ -60,6 +76,16 @@ var primeBlockedArgs = map[string]blockedArgMode{
 //   - Prime reads AGENTS.md (and CLAUDE.md) from its cwd natively, so the
 //     Multica runtime brief reaches it through execenv's normal per-task
 //     context file, not through ExecOptions.SystemPrompt.
+//   - Prime's IPython-hosted `rlm.run` tool can spawn a fire-and-forget
+//     "subagent" (RLM child session) that keeps running and streaming
+//     `session_info_update` notifications after `session/prompt` returns —
+//     ACP has no RPC to wait for these to reach a terminal state. Phase 1
+//     does not track them: Execute sets RLM_MAX_DEPTH=0 in the child
+//     process's environment, which is the sole gate `_startRlmChildRun`
+//     checks before spawning a child, so no subagent can ever be created
+//     (see the RLM_MAX_DEPTH doc comment below for the full citation). A
+//     future phase may track subagents to a terminal state instead of
+//     disabling them; that is out of scope here.
 type primeBackend struct {
 	cfg Config
 }
@@ -84,8 +110,25 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	primeArgs = append(primeArgs, filterCustomArgs(opts.CustomArgs, primeBlockedArgs, b.cfg.Logger)...)
 
 	cmd := exec.CommandContext(runCtx, execPath, primeArgs...)
+	// Run prime-agent in its own process group so cancellation can reach the
+	// whole tree — the IPython kernel and any tool subprocess it spawns, not
+	// just the direct child. The default CommandContext behaviour SIGKILLs
+	// only the leader, which would orphan those descendants. This mirrors the
+	// fix already made for claude (#5918), codex (#4520), and opencode
+	// (#4533); see proc_other.go / proc_windows.go.
+	configureProcessGroup(cmd)
+	// Take over context cancellation: the default would SIGKILL only the
+	// leader the instant runCtx is done, which would not give
+	// connection.dispose() (Prime's own ACP-mode shutdown hook) any chance to
+	// clean up the IPython kernel before the process is torn down. We instead
+	// drive a graceful group-wide SIGTERM→SIGKILL from the cancellation
+	// goroutine below and close stdout only after the tree has been
+	// signalled. Returning nil keeps os/exec from racing us with its own
+	// kill; WaitDelay remains the hard backstop.
+	cmd.Cancel = func() error { return nil }
 	hideAgentWindow(cmd)
 	b.cfg.Logger.Info("agent command", "exec", execPath, "args", primeArgs)
+	cmd.WaitDelay = 10 * time.Second
 	agentsMDPresent := false
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
@@ -94,7 +137,26 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		}
 	}
 	b.cfg.Logger.Info("prime-agent acp starting", "cwd", opts.Cwd, "agents_md_present", agentsMDPresent)
-	cmd.Env = buildEnv(b.cfg.Env)
+	// RLM_MAX_DEPTH=0 disables Prime's rlm.run subagent tool for this process.
+	// Verified directly against prime-agent v0.7.1 source: _startRlmChildRun
+	// (the sole entry point every rlm.run call goes through) refuses to spawn
+	// a child whenever the current session's rlmDepth >= rlmMaxDepth, and
+	// rlmMaxDepth resolves from (in order) an explicit per-session value, the
+	// RLM_MAX_DEPTH env var, then a default of 1 — ACP mode's session/new has
+	// no field to set this per session, so the env var is the only lever
+	// available to an ACP client. With it forced to 0, the top-level session
+	// (rlmDepth 0) always fails the 0 >= 0 check before any child is created.
+	// This also removes the subagent-guidance section from Prime's own system
+	// prompt (allowRecursion is threaded into buildRlmPrompt), so the model
+	// is never told a capability exists that is actually blocked, and it does
+	// not touch refinement/goal/other tools, which run through a separate,
+	// synchronous code path (completeSimple) that never calls
+	// _startRlmChildRun. See
+	// https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/core/agent-session.ts#L9599
+	// (the depth check) and
+	// https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/core/system-prompt.ts
+	// (the prompt gating).
+	cmd.Env = append(buildEnv(b.cfg.Env), "RLM_MAX_DEPTH=0")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -106,6 +168,8 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		cancel()
 		return nil, fmt.Errorf("prime-agent stdin pipe: %w", err)
 	}
+	var closeStdinOnce sync.Once
+	closeStdin := func() { closeStdinOnce.Do(func() { _ = stdin.Close() }) }
 
 	providerErr := newACPProviderErrorSniffer("prime")
 	stderr, err := cmd.StderrPipe()
@@ -157,6 +221,12 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		},
 	}
 
+	// procDone closes once cmd.Wait() returns (see the final deferred cleanup
+	// in the goroutine below), letting the cancellation handler skip a
+	// process that already exited on its own instead of signalling a
+	// dead/reused pid.
+	procDone := make(chan struct{})
+
 	readerDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
@@ -171,13 +241,45 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		c.closeAllPending(fmt.Errorf("prime-agent process exited"))
 	}()
 
+	// On cancellation / timeout, terminate prime-agent (and its IPython
+	// kernel / any tool subprocess it spawned) BEFORE unblocking the scanner.
+	// EOF stdin to nudge a clean exit, then SIGTERM the whole process group,
+	// give it a grace period so connection.dispose() can clean up, and
+	// SIGKILL the group if any member is still alive. SIGKILL is uncatchable,
+	// so once delivered no group member can write again — only then is it
+	// safe to close the stdout read end as a last-resort unblock for a
+	// scanner a wedged descendant still keeps open. WaitDelay is the final
+	// backstop. This mirrors claude.go/codex.go/opencode.go/deveco.go's
+	// established pattern rather than inventing a new one.
+	go func() {
+		select {
+		case <-procDone:
+			return // finished on its own; nothing to terminate
+		case <-runCtx.Done():
+		}
+		closeStdin()
+		if cmd.Process != nil {
+			signalProcessGroup(cmd.Process, syscall.SIGTERM)
+			// Escalate to a group SIGKILL unless the WHOLE process group has
+			// exited within the grace window — keyed off the process group,
+			// not procDone, so a SIGTERM-ignoring descendant that does not
+			// hold prime-agent's stdout cannot let the leader exit, close
+			// procDone, and skip the SIGKILL.
+			if !waitProcessGroupGone(cmd.Process, primeTerminateGrace()) {
+				signalProcessGroup(cmd.Process, syscall.SIGKILL)
+			}
+		}
+		_ = stdout.Close()
+	}()
+
 	go func() {
 		defer cancel()
 		defer close(msgCh)
 		defer close(resCh)
 		defer func() {
-			stdin.Close()
+			closeStdin()
 			_ = cmd.Wait()
+			close(procDone)
 		}()
 
 		startTime := time.Now()
@@ -290,7 +392,8 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// most ACP backends here, which rely on transport teardown alone), so
 		// call it when we still have a live connection. Best-effort: a failure
 		// here must not overwrite an already-decided finalStatus/finalError,
-		// and the stdin-close + cmd.Wait() below still runs regardless.
+		// and the closeStdin + cmd.Wait() in the deferred cleanup above still
+		// run regardless.
 		if finalStatus != "aborted" {
 			if _, closeErr := c.request(runCtx, "session/close", map[string]any{
 				"sessionId": sessionID,
@@ -302,8 +405,11 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		duration := time.Since(startTime)
 		b.cfg.Logger.Info("prime-agent finished", "pid", cmd.Process.Pid, "status", finalStatus, "duration", duration.Round(time.Millisecond).String())
 
-		stdin.Close()
-		cancel()
+		// Nudge a clean exit before waiting for the reader/stderr goroutines —
+		// cmd.Wait() itself happens in the deferred cleanup above, after this
+		// goroutine returns, once the process has actually exited or the
+		// cancellation goroutine has killed the group.
+		closeStdin()
 
 		<-readerDone
 		<-stderrDone
