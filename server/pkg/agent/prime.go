@@ -26,6 +26,19 @@ var primeBlockedArgs = map[string]blockedArgMode{
 	"--cwd":  blockedWithValue,
 }
 
+// primeGracefulExitGraceNanos optionally overrides, in nanoseconds, how long a
+// cancelled prime-agent is given to exit on its own from the stdin EOF before
+// its process group is signalled at all. Set via atomic store in tests; zero
+// keeps the default.
+var primeGracefulExitGraceNanos atomic.Int64
+
+func primeGracefulExitGrace() time.Duration {
+	if n := primeGracefulExitGraceNanos.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	return 5 * time.Second
+}
+
 // primeTerminateGraceNanos optionally overrides, in nanoseconds, how long a
 // cancelled prime-agent process group is given to exit after SIGTERM before
 // it is SIGKILLed. Set via atomic store in tests; zero keeps the default.
@@ -273,14 +286,15 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 
 	// On cancellation / timeout, terminate prime-agent (and its IPython
 	// kernel / any tool subprocess it spawned) BEFORE unblocking the scanner.
-	// EOF stdin to nudge a clean exit, then SIGTERM the whole process group,
-	// give it a grace period so connection.dispose() can clean up, and
-	// SIGKILL the group if any member is still alive. SIGKILL is uncatchable,
-	// so once delivered no group member can write again — only then is it
-	// safe to close the stdout read end as a last-resort unblock for a
-	// scanner a wedged descendant still keeps open. WaitDelay is the final
-	// backstop. This mirrors claude.go/codex.go/opencode.go/deveco.go's
-	// established pattern rather than inventing a new one.
+	// EOF stdin, give prime-agent a bounded window to exit on its own, then
+	// SIGTERM the whole process group, give it a grace period so
+	// connection.dispose() can clean up, and SIGKILL the group if any member
+	// is still alive. SIGKILL is uncatchable, so once delivered no group
+	// member can write again — only then is it safe to close the stdout read
+	// end as a last-resort unblock for a scanner a wedged descendant still
+	// keeps open. WaitDelay is the final backstop. This mirrors
+	// claude.go/codex.go/opencode.go/deveco.go's established pattern rather
+	// than inventing a new one.
 	go func() {
 		select {
 		case <-procDone:
@@ -288,7 +302,25 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		case <-runCtx.Done():
 		}
 		closeStdin()
-		if cmd.Process != nil {
+		// Let the stdin EOF above do its work before reaching for a signal.
+		// prime-agent drives Prime's whole ACP shutdown hook off that EOF
+		// (handle.closed -> connection.dispose() -> complete_owned_session),
+		// and that hook is the only thing that stops the DETACHED daemon
+		// worker Prime runs the session in — a worker that lives in its own
+		// process group and therefore survives everything below. Signalling
+		// straight away races the hook; losing that race strands the worker on
+		// the supervisor's 30s owner-disconnect fallback, during which its
+		// cron scheduler keeps starting fresh turns for a task Multica has
+		// already reported as finished.
+		select {
+		case <-procDone:
+		case <-time.After(primeGracefulExitGrace()):
+		}
+		// procDone only proves the LEADER was reaped, never that the group is
+		// empty, so the whole-group check stays authoritative before deciding
+		// not to signal — a descendant that outlived the leader must still be
+		// terminated below.
+		if cmd.Process != nil && !waitProcessGroupGone(cmd.Process, 0) {
 			signalProcessGroup(cmd.Process, syscall.SIGTERM)
 			// Escalate to a group SIGKILL unless the WHOLE process group has
 			// exited within the grace window — keyed off the process group,

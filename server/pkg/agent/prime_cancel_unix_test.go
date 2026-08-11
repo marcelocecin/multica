@@ -5,7 +5,9 @@ package agent
 import (
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,6 +86,99 @@ done
 `
 }
 
+// primeGracefulExitFakeScript returns a fake `prime-agent` that models the
+// path Prime's real ACP mode takes on stdin EOF: it exits 0 on its own,
+// leaving NO descendant behind, and records that it got there gracefully.
+// It also records any SIGTERM it receives, so a test can assert the daemon
+// never had to reach for a signal at all. Nothing here holds prime-agent's
+// stdout open after the leader exits, so the whole process group really is
+// empty by the time the cancellation handler re-checks it.
+func primeGracefulExitFakeScript() string {
+	return "#!/bin/sh\n" +
+		`trap 'printf "term\n" >> "$PRIME_SIGNAL_FILE"' TERM
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}\n' "$id"
+      ;;
+    *'"method":"session/new"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_cancel"}}\n' "$id"
+      ;;
+    *'"method":"session/prompt"'*)
+      # Never respond, and announce that the turn is now in flight so the
+      # test cancels mid-turn rather than during the handshake.
+      printf 'ready\n' >> "$PRIME_SIGNAL_FILE"
+      ;;
+    *)
+      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id"
+      ;;
+  esac
+done
+# stdin EOF: this is the graceful shutdown path Prime uses to run
+# connection.dispose() -> complete_owned_session before exiting.
+printf 'graceful\n' >> "$PRIME_SIGNAL_FILE"
+exit 0
+`
+}
+
+// waitForFileContaining polls path until it contains want, failing the test if
+// that never happens before the deadline.
+func waitForFileContaining(t *testing.T, path, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(path); err == nil && strings.Contains(string(raw), want) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("file %s never contained %q", path, want)
+}
+
+// readFileString returns path's contents, failing the test if it cannot be read.
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(raw)
+}
+
+// primeLeaderExitsOnEOFFakeScript returns a fake `prime-agent` whose leader
+// exits on stdin EOF WITHOUT needing a signal, while a SIGTERM-ignoring,
+// stdio-detached grandchild keeps running. This is the regression case for
+// the graceful-exit window: the leader exiting closes procDone early, so an
+// implementation that treats procDone as proof the group is gone skips
+// escalation entirely and orphans the grandchild.
+func primeLeaderExitsOnEOFFakeScript() string {
+	return "#!/bin/sh\n" +
+		`( trap '' TERM; sleep 300 ) </dev/null >/dev/null 2>&1 &
+child=$!
+if [ -n "$PRIME_PID_FILE" ]; then
+  printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
+fi
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}\n' "$id"
+      ;;
+    *'"method":"session/new"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_cancel"}}\n' "$id"
+      ;;
+    *'"method":"session/prompt"'*)
+      ;;
+    *)
+      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id"
+      ;;
+  esac
+done
+exit 0
+`
+}
+
 // All four cancellation/timeout scenarios below can observe "failed" instead
 // of "aborted"/"timeout": whichever process (leader or grandchild) exits last
 // closes prime-agent's stdout, and that EOF races the still-in-flight
@@ -104,7 +199,81 @@ done
 // cancelling a run terminates a SIGTERM-respecting prime-agent and its whole
 // process group, returns without hanging, and leaves no orphaned descendant.
 func TestPrimeCancellationTerminatesProcessGroupGraceful(t *testing.T) {
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
+	t.Cleanup(func() { primeGracefulExitGraceNanos.Store(0) })
 	runPrimeCancellationTest(t, primeCancelFakeScript(false), nil, "aborted", "failed")
+}
+
+// TestPrimeCancellationSkipsSignalWhenPrimeExitsOnEOF pins the graceful-exit
+// window itself: when prime-agent exits on its own from the stdin EOF and
+// leaves nothing behind, cancellation must NOT signal it at all. That window
+// is what lets Prime's ACP shutdown hook (handle.closed ->
+// connection.dispose() -> complete_owned_session) run to completion, which is
+// the only supported way to stop the detached daemon worker the session
+// actually runs in. Signalling here would cut that hook short.
+func TestPrimeCancellationSkipsSignalWhenPrimeExitsOnEOF(t *testing.T) {
+	tempDir := t.TempDir()
+	signalFile := filepath.Join(tempDir, "signals")
+	fakePath := filepath.Join(tempDir, "prime-agent")
+	writeTestExecutable(t, fakePath, []byte(primeGracefulExitFakeScript()))
+
+	backend, err := New("prime", Config{
+		ExecutablePath: fakePath,
+		Logger:         slog.Default(),
+		Env:            map[string]string{"PRIME_SIGNAL_FILE": signalFile},
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{Cwd: tempDir})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	go func() {
+		for range session.Messages {
+		}
+	}()
+
+	// Wait until the fake has received session/prompt, so the run is genuinely
+	// mid-turn (that prompt is never answered) when the cancel lands.
+	waitForFileContaining(t, signalFile, "ready")
+	cancel()
+
+	select {
+	case <-session.Result:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute did not return after cancellation")
+	}
+
+	got := readFileString(t, signalFile)
+	if !strings.Contains(got, "graceful") {
+		t.Fatalf("prime-agent did not take the graceful stdin-EOF exit path; signal file = %q", got)
+	}
+	if strings.Contains(got, "term") {
+		t.Fatalf("cancellation signalled a prime-agent that was already exiting on its own — "+
+			"this cuts Prime's ACP shutdown hook short and strands its detached worker; signal file = %q", got)
+	}
+}
+
+// TestPrimeCancellationStillKillsGroupWhenLeaderExitsOnEOF is the companion
+// regression to the test above, and the one that fails if the graceful-exit
+// window is allowed to short-circuit the teardown: the leader exits on stdin
+// EOF (closing procDone early) while a SIGTERM-ignoring, stdio-detached
+// grandchild keeps running. procDone proves only that the LEADER was reaped,
+// so escalation must stay gated on the whole process group or the grandchild
+// is orphaned.
+func TestPrimeCancellationStillKillsGroupWhenLeaderExitsOnEOF(t *testing.T) {
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
+	primeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
+	t.Cleanup(func() {
+		primeGracefulExitGraceNanos.Store(0)
+		primeTerminateGraceNanos.Store(0)
+	})
+	runPrimeCancellationTest(t, primeLeaderExitsOnEOFFakeScript(), nil, "aborted", "failed")
 }
 
 // TestPrimeCancellationEscalatesToSIGKILL verifies the worst case: prime-agent
@@ -112,8 +281,12 @@ func TestPrimeCancellationTerminatesProcessGroupGraceful(t *testing.T) {
 // and keep running. Cancellation must escalate to a group SIGKILL, still
 // return promptly, and still reap the whole group.
 func TestPrimeCancellationEscalatesToSIGKILL(t *testing.T) {
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
 	primeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
-	t.Cleanup(func() { primeTerminateGraceNanos.Store(0) })
+	t.Cleanup(func() {
+		primeGracefulExitGraceNanos.Store(0)
+		primeTerminateGraceNanos.Store(0)
+	})
 	runPrimeCancellationTest(t, primeCancelFakeScript(true), nil, "aborted", "failed")
 }
 
@@ -123,8 +296,12 @@ func TestPrimeCancellationEscalatesToSIGKILL(t *testing.T) {
 // which only holds when the SIGKILL escalation is gated on the whole process
 // group (not the leader's exit).
 func TestPrimeCancellationEscalatesWhenDescendantIgnoresTERM(t *testing.T) {
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
 	primeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
-	t.Cleanup(func() { primeTerminateGraceNanos.Store(0) })
+	t.Cleanup(func() {
+		primeGracefulExitGraceNanos.Store(0)
+		primeTerminateGraceNanos.Store(0)
+	})
 	runPrimeCancellationTest(t, primeMixedSignalFakeScript(), nil, "aborted", "failed")
 }
 
@@ -134,8 +311,12 @@ func TestPrimeCancellationEscalatesWhenDescendantIgnoresTERM(t *testing.T) {
 // explicitly asked for timeout to be covered as its own scenario, matching
 // the precedent in codex_cleanup_unix_test.go.
 func TestPrimeTimeoutTerminatesProcessGroupWithDescendant(t *testing.T) {
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
 	primeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
-	t.Cleanup(func() { primeTerminateGraceNanos.Store(0) })
+	t.Cleanup(func() {
+		primeGracefulExitGraceNanos.Store(0)
+		primeTerminateGraceNanos.Store(0)
+	})
 	runPrimeCancellationTest(t, primeCancelFakeScript(false), &ExecOptions{Timeout: 500 * time.Millisecond}, "timeout", "failed")
 }
 

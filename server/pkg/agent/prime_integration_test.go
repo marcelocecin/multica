@@ -222,6 +222,21 @@ func TestPrimeRealACPReadsAgentsMD(t *testing.T) {
 	}
 }
 
+// primeAgentDir resolves prime-agent's own config/state directory the same way
+// prime-agent does (config.ts's getAgentDir: PRIME_AGENT_CODING_AGENT_DIR, else
+// ~/.prime/agent). Read-only callers use it to inspect Prime's settings,
+// session artifacts and daemon logs; nothing here ever writes to it.
+func primeAgentDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("PRIME_AGENT_CODING_AGENT_DIR")); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".prime", "agent"), nil
+}
+
 // primeGlobalRlmMaxDepthConfigured is a best-effort, read-only check for the
 // one known gap in RLM_MAX_DEPTH=0's guarantee (see the precedence-chain
 // comment on primeBackend.Execute in prime.go): prime-agent's own
@@ -236,13 +251,9 @@ func TestPrimeRealACPReadsAgentsMD(t *testing.T) {
 // but happens not to matter for this particular prompt.
 func primeGlobalRlmMaxDepthConfigured(t *testing.T) bool {
 	t.Helper()
-	home, err := os.UserHomeDir()
+	agentDir, err := primeAgentDir()
 	if err != nil {
 		return false
-	}
-	agentDir := strings.TrimSpace(os.Getenv("PRIME_AGENT_CODING_AGENT_DIR"))
-	if agentDir == "" {
-		agentDir = filepath.Join(home, ".prime", "agent")
 	}
 	raw, err := os.ReadFile(filepath.Join(agentDir, "settings.json"))
 	if err != nil {
