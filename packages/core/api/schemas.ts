@@ -1,8 +1,5 @@
 import { z } from "zod";
 import type {
-  Agent,
-  AgentTemplate,
-  AgentTemplateSummary,
   AgentBuilderRuntimeSwitch,
   AgentBuilderSession,
   AgentBuilderSessionSummary,
@@ -22,11 +19,19 @@ import type {
   SendChatMessageResponse,
   StartMikaOnboardingResponse,
   Comment,
-  CreateAgentFromTemplateResponse,
   CreateBillingCheckoutSessionResponse,
   CreateBillingPortalSessionResponse,
+  WorkspaceSubscriptionEntitlements,
+  WorkspaceSubscriptionSummary,
+  WorkspaceSubscriptionPrice,
+  WorkspaceSubscriptionPrices,
+  CreateWorkspaceSubscriptionCheckoutResponse,
+  WorkspaceSubscriptionSeatReconcileResult,
+  CreateWorkspaceSubscriptionPortalResponse,
   CronPreviewResponse,
+  DingTalkGroupRoute,
   DingTalkInstallation,
+  ListDingTalkGroupRoutesResponse,
   ListDingTalkInstallationsResponse,
   RedeemDingTalkBindingTokenResponse,
   WecomInstallation,
@@ -53,10 +58,14 @@ import type {
   ListLabelsResponse,
   ListWebhookDeliveriesResponse,
   NotificationPreferenceResponse,
+  PluginCatalogResponse,
+  PluginInstallation,
+  PluginInstallationListResponse,
   ResourceLabelsResponse,
   RuntimeModelListRequest,
   SearchIssuesResponse,
   SearchProjectsResponse,
+  Skill,
   Squad,
   TimelineEntry,
   User,
@@ -64,6 +73,132 @@ import type {
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
 import type { CreateFeedbackResponse } from "../feedback/types";
+
+export const PluginBindingSchema = z.object({
+  scope_type: z.string().default("workspace"),
+  scope_id: z.string().default(""),
+  enabled: z.boolean().default(false),
+  revision: z.number().default(0),
+}).loose();
+
+export const PluginInstallationSchema = z.object({
+  id: z.string(),
+  plugin_key: z.string().default(""),
+  display_name: z.string().default(""),
+  desired_version: z.string().default(""),
+  active_version: z.string().optional(),
+  enabled: z.boolean().default(false),
+  desired_generation: z.number().default(0),
+  active_generation: z.number().default(0),
+  lifecycle_status: z.string().default("error"),
+  health_state: z.string().optional(),
+  health_reason: z.string().optional(),
+  description: z.string().optional(),
+  publisher: z.string().default(""),
+  publisher_type: z.string().default(""),
+  trust_tier: z.string().default(""),
+  source_kind: z.string().default("bundled"),
+  source_ref: z.string().default(""),
+  uploader_id: z.string().optional(),
+  manifest_digest: z.string().default(""),
+  archive_digest: z.string().default(""),
+  artifact_digest: z.string().default(""),
+  signature_verified: z.boolean().default(false),
+  requested_capabilities: z.array(z.string()).default([]),
+  available_versions: z.array(z.string()).default([]),
+  contributions: z.array(z.string()).default([]),
+  contribution_details: z.array(z.object({
+    key: z.string(),
+    type: z.string().default(""),
+    name: z.string().default(""),
+    description: z.string().default(""),
+    entry_path: z.string().default(""),
+    entry_digest: z.string().default(""),
+  }).loose()).default([]),
+  bindings: z.array(PluginBindingSchema).default([]),
+}).loose();
+
+export const EMPTY_PLUGIN_INSTALLATION: PluginInstallation = {
+  id: "",
+  plugin_key: "",
+  display_name: "",
+  desired_version: "",
+  enabled: false,
+  desired_generation: 0,
+  active_generation: 0,
+  lifecycle_status: "error",
+  publisher: "",
+  publisher_type: "",
+  trust_tier: "",
+  source_kind: "bundled",
+  source_ref: "",
+  manifest_digest: "",
+  archive_digest: "",
+  artifact_digest: "",
+  signature_verified: false,
+  requested_capabilities: [],
+  available_versions: [],
+  contributions: [],
+  contribution_details: [],
+  bindings: [],
+};
+
+export const PluginInstallationListResponseSchema = z.object({
+  plugins: z.array(PluginInstallationSchema).default([]),
+}).loose();
+
+export const EMPTY_PLUGIN_INSTALLATION_LIST: PluginInstallationListResponse = {
+  plugins: [],
+};
+
+export const PluginCatalogContributionSchema = z.object({
+  key: z.string(),
+  type: z.string().default(""),
+  name: z.string().default(""),
+  description: z.string().default(""),
+  entry_path: z.string().default(""),
+  entry_digest: z.string().default(""),
+}).loose();
+
+export const PluginCatalogReleaseSchema = z.object({
+  plugin_key: z.string(),
+  name: z.string().default(""),
+  description: z.string().default(""),
+  version: z.string(),
+  publisher: z.string().default(""),
+  publisher_type: z.string().default(""),
+  trust_tier: z.string().default(""),
+  source_kind: z.string().default("bundled"),
+  source_ref: z.string().default(""),
+  requested_capabilities: z.array(z.string()).default([]),
+  host_api: z.string().default(""),
+  required_daemon_features: z.array(z.string()).default([]),
+  signature_key_id: z.string().default(""),
+  signature_verified: z.boolean().default(false),
+  manifest_digest: z.string().default(""),
+  archive_digest: z.string().default(""),
+  artifact_digest: z.string().default(""),
+  compatible: z.boolean().default(false),
+  compatibility_reason: z.string().optional(),
+  contributions: z.array(PluginCatalogContributionSchema).default([]),
+  installation: PluginInstallationSchema.optional(),
+}).loose();
+
+export const PluginCatalogResponseSchema = z.object({
+  releases: z.array(PluginCatalogReleaseSchema).default([]),
+  diagnostics: z.array(z.object({
+    source_ref: z.string().default(""),
+    code: z.string().default("unknown"),
+    message: z.string().default(""),
+  }).loose()).default([]),
+  supported: z.boolean().optional().default(true),
+}).loose();
+
+export const EMPTY_PLUGIN_CATALOG: PluginCatalogResponse = {
+  releases: [],
+  diagnostics: [],
+  supported: false,
+};
 
 export const GitHubInstallationSchema = z.object({
   id: z.string(),
@@ -524,6 +659,11 @@ export const AttachmentResponseSchema = z.object({
   id: z.string(),
   url: z.string(),
   download_url: z.string(),
+  // Forced-attachment ("download button") URL — credential-free and, unlike
+  // `download_url`, always Content-Disposition: attachment across every storage
+  // mode. Optional: a server older than this field omits it, and callers fall
+  // back to `download_url` / the stable endpoint. Never persisted (short-lived).
+  attachment_download_url: z.string().optional(),
   markdown_url: z.string().optional().default(""),
   filename: z.string(),
   chat_session_id: z.string().nullable().optional(),
@@ -1400,126 +1540,6 @@ export const EMPTY_CANCEL_TASK_RESPONSE: CancelTaskResponse = {
   created_at: "",
 };
 
-// ---------------------------------------------------------------------------
-// Agent template catalog — `/api/agent-templates*` and the
-// create-from-template response. The desktop app's create-agent picker
-// reaches these endpoints, and a future server change to the template shape
-// would white-screen older installed builds (#2192 pattern) without these
-// parsers. Lenient by the same rules as IssueSchema above: arrays default to
-// `[]`, optional fields stay optional, `.loose()` lets unknown fields pass
-// through unchanged.
-// ---------------------------------------------------------------------------
-
-const AgentTemplateSkillRefSchema = z.object({
-  source_url: z.string(),
-  cached_name: z.string().default(""),
-  cached_description: z.string().default(""),
-}).loose();
-
-const AgentTemplateSummarySchemaBase = z.object({
-  slug: z.string(),
-  name: z.string(),
-  description: z.string().default(""),
-  category: z.string().optional(),
-  icon: z.string().optional(),
-  accent: z.string().optional(),
-  // skills MUST default to [] — picker code reads `template.skills.length`
-  // and `.map(...)`, both of which crash on `undefined`. The most common
-  // future drift (field renamed / wrapped) lands here.
-  skills: z.array(AgentTemplateSkillRefSchema).default([]),
-}).loose();
-
-export const AgentTemplateSummarySchema = AgentTemplateSummarySchemaBase;
-
-// List endpoint historically returns a bare array. Server could legitimately
-// migrate to `{templates: [...]}` later — we accept either shape so an old
-// desktop survives the upgrade.
-export const AgentTemplateSummaryListSchema = z.union([
-  z.array(AgentTemplateSummarySchemaBase),
-  z.object({ templates: z.array(AgentTemplateSummarySchemaBase).default([]) })
-    .loose()
-    .transform((v) => v.templates),
-]);
-
-export const EMPTY_AGENT_TEMPLATE_SUMMARY_LIST: AgentTemplateSummary[] = [];
-
-export const AgentTemplateSchema = AgentTemplateSummarySchemaBase.extend({
-  // Detail-only field. Default "" so a malformed detail still renders the
-  // header + skill list; the user just sees an empty Instructions block.
-  instructions: z.string().default(""),
-  system_key: z.string().optional(),
-  system_instructions: z.string().optional(),
-}).loose();
-
-// Used as the parse fallback for `GET /api/agent-templates/:slug`. Slug comes
-// from the URL, so we round-trip the requested one back into the fallback
-// at the call site (see `getAgentTemplate` in client.ts).
-export const EMPTY_AGENT_TEMPLATE_DETAIL: AgentTemplate = {
-  slug: "",
-  name: "",
-  description: "",
-  skills: [],
-  instructions: "",
-};
-
-// ---------------------------------------------------------------------------
-// Agent invocation permissions (MUL-3963)
-//
-// Full agent request/response payloads are NOT zod-validated today — the API
-// client returns them typed directly (see client.ts `listAgents` /
-// `getAgent` / `createAgent`), so there is no `AgentSchema` /
-// `CreateAgentRequestSchema` / `UpdateAgentRequestSchema` to extend here.
-// These lenient, exported fragments encode the new permission fields so any
-// future agent schema — and the from-template minimal agent below — can reuse
-// them. Per this file's convention the enum stays lenient (a future
-// server-side value degrades to the strict default rather than failing the
-// parse), and the target array defaults to `[]`.
-// ---------------------------------------------------------------------------
-
-export const AgentPermissionModeSchema = z
-  .enum(["private", "public_to"])
-  .catch("private");
-
-export const AgentInvocationTargetSchema = z
-  .object({
-    target_type: z.string(),
-    target_id: z.string().nullable().optional().transform((v) => v ?? null),
-  })
-  .loose();
-
-export const AgentInvocationTargetsSchema = z
-  .array(AgentInvocationTargetSchema)
-  .default([]);
-
-// `agent` is a full Agent record — schematising every field would duplicate
-// a 50-field interface and bit-rot fast. We keep it loose and require only
-// `id`, the one field the create-from-template flow consumes (used to
-// navigate to the new agent's detail page). Downstream code already
-// optional-chains the rest. The permission fields are parsed leniently when
-// present so the from-template response carries a well-formed access shape.
-const MinimalAgentSchema = z.object({
-  id: z.string(),
-  permission_mode: AgentPermissionModeSchema.optional(),
-  invocation_targets: AgentInvocationTargetsSchema.optional(),
-}).loose();
-
-export const CreateAgentFromTemplateResponseSchema = z.object({
-  agent: MinimalAgentSchema,
-  imported_skill_ids: z.array(z.string()).default([]),
-  reused_skill_ids: z.array(z.string()).default([]),
-}).loose();
-
-// Fallback when the success response fails to parse. The agent server-side
-// has likely been created already, so we can't pretend nothing happened —
-// the caller (`create-agent-dialog.tsx`) is responsible for noticing
-// `agent.id === ""` and skipping navigation while keeping the list
-// invalidation, so the user finds their new agent in the list.
-export const EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE: CreateAgentFromTemplateResponse = {
-  agent: { id: "" } as Agent,
-  imported_skill_ids: [],
-  reused_skill_ids: [],
-};
-
 export const AgentBuilderSessionSchema = z.object({
   session_id: z.string(),
   builder_agent_id: z.string(),
@@ -2145,6 +2165,170 @@ export const EMPTY_CREATE_BILLING_PORTAL_SESSION_RESPONSE: CreateBillingPortalSe
 };
 
 // ---------------------------------------------------------------------------
+// Workspace subscriptions (`/api/cloud-subscriptions/*`)
+//
+// These schemas are the compatibility boundary with multica-cloud. Three rules
+// hold for all of them:
+//
+//  1. There is no fallback value. Callers get `null` on any parse failure and
+//     must render "unavailable" — never a synthetic Free plan, because that
+//     turns an upstream outage or an older cloud into a silent downgrade of a
+//     paying workspace.
+//  2. `.loose()` keeps unknown keys, so a cloud that adds fields does not break
+//     an older client.
+//  3. `plan` and `status` stay open strings. A new plan or Stripe status must
+//     surface as unknown rather than be coerced into a known one.
+
+const WorkspaceSubscriptionIntervalSchema = z.enum(["month", "year"]);
+
+// Stripe hosts Checkout and Portal, so those URLs leave the app. `z.string()
+// .url()` is not enough on its own — `new URL("javascript:...")` parses — and
+// the caller hands this value to location.assign, so the scheme is pinned here.
+const StripeHostedURLSchema = z.string().url().refine(
+  (value) => value.startsWith("https://"),
+  { message: "Stripe hosted URL must use HTTPS" },
+);
+
+
+export const WorkspaceSubscriptionEntitlementsSchema = z
+  .object({
+    workspace_id: z.string(),
+    plan: z.string(),
+    status: z.string(),
+    // Cloud documents seats as >= 1, but accepting 0 costs nothing and keeps a
+    // workspace that momentarily reports no human members readable instead of
+    // failing the whole snapshot.
+    seats: z.number().int().nonnegative(),
+    issue_window: z.number().int().nonnegative().nullable(),
+    autopilot_runs: z.number().int().nonnegative().nullable(),
+    current_period_end: z.string().nullable().optional(),
+    snapshot_expires_at: z.string().nullable().optional(),
+    version: z.number().int().nonnegative(),
+  })
+  .loose()
+  .transform(
+    (value): WorkspaceSubscriptionEntitlements => ({
+      workspaceId: value.workspace_id,
+      plan: value.plan,
+      status: value.status,
+      seats: value.seats,
+      issueWindow: value.issue_window,
+      autopilotRuns: value.autopilot_runs,
+      currentPeriodEnd: value.current_period_end ?? null,
+      snapshotExpiresAt: value.snapshot_expires_at ?? null,
+      version: value.version,
+    }),
+  );
+
+export const WorkspaceSubscriptionSummarySchema = z
+  .object({
+    entitlement: WorkspaceSubscriptionEntitlementsSchema,
+    billing_interval: WorkspaceSubscriptionIntervalSchema.nullable().optional(),
+    actual_seats: z.number().int().nonnegative(),
+    billed_seats: z.number().int().nonnegative().nullable().optional(),
+    pending_seat_quantity: z.number().int().nonnegative().nullable().optional(),
+    cancel_at_period_end: z.boolean().optional(),
+    grace_until: z.string().nullable().optional(),
+    has_stripe_customer: z.boolean().optional(),
+  })
+  .loose()
+  .transform(
+    (value): WorkspaceSubscriptionSummary => ({
+      entitlement: value.entitlement,
+      billingInterval: value.billing_interval ?? null,
+      actualSeats: value.actual_seats,
+      billedSeats: value.billed_seats ?? null,
+      pendingSeatQuantity: value.pending_seat_quantity ?? null,
+      cancelAtPeriodEnd: value.cancel_at_period_end ?? false,
+      graceUntil: value.grace_until ?? null,
+      hasStripeCustomer: value.has_stripe_customer ?? false,
+    }),
+  );
+
+const WorkspaceSubscriptionPriceSchema = (
+  expected: "month" | "year",
+) =>
+  z
+    .object({
+      currency: z.string().min(1),
+      // Reject 0 and negatives: a free or malformed Price must read as
+      // "price unavailable", not as a real amount shown next to a purchase
+      // button.
+      unit_amount: z.number().int().positive(),
+      // Pinned to the slot it arrived in. Cloud validates this too, but a
+      // schema that accepted a yearly Price under `month` would let the UI
+      // quote a yearly amount as a monthly one — the schema is an independent
+      // boundary, so it checks the correspondence itself.
+      interval: z.literal(expected),
+      interval_count: z.literal(1),
+    })
+    .loose()
+    .transform(
+      (value): WorkspaceSubscriptionPrice => ({
+        currency: value.currency,
+        unitAmount: value.unit_amount,
+        interval: value.interval,
+        intervalCount: value.interval_count,
+      }),
+    );
+
+export const WorkspaceSubscriptionPricesSchema = z
+  .object({
+    month: WorkspaceSubscriptionPriceSchema("month"),
+    year: WorkspaceSubscriptionPriceSchema("year"),
+  })
+  .loose()
+  .transform(
+    (value): WorkspaceSubscriptionPrices => ({
+      month: value.month,
+      year: value.year,
+    }),
+  );
+
+export const CreateWorkspaceSubscriptionCheckoutResponseSchema = z
+  .object({
+    request_id: z.string(),
+    session_id: z.string(),
+    url: StripeHostedURLSchema,
+  })
+  .loose()
+  .transform(
+    (value): CreateWorkspaceSubscriptionCheckoutResponse => ({
+      requestId: value.request_id,
+      sessionId: value.session_id,
+      url: value.url,
+    }),
+  );
+
+export const WorkspaceSubscriptionSeatReconcileResultSchema = z
+  .object({
+    workspace_id: z.string(),
+    billed_seats: z.number().int().nonnegative(),
+    actual_seats: z.number().int().nonnegative(),
+    action: z.string(),
+  })
+  .loose()
+  .transform(
+    (value): WorkspaceSubscriptionSeatReconcileResult => ({
+      workspaceId: value.workspace_id,
+      billedSeats: value.billed_seats,
+      actualSeats: value.actual_seats,
+      action: value.action,
+    }),
+  );
+
+export const CreateWorkspaceSubscriptionPortalResponseSchema = z
+  .object({
+    url: StripeHostedURLSchema,
+  })
+  .loose()
+  .transform(
+    (value): CreateWorkspaceSubscriptionPortalResponse => ({
+      url: value.url,
+    }),
+  );
+
+// ---------------------------------------------------------------------------
 // Runtime model discovery (`POST /api/runtimes/:id/models`,
 // `GET /api/runtimes/:id/models/:requestId`). Both endpoints return the same
 // request record, and the UI drives a state machine off `status`, so the two
@@ -2247,11 +2431,42 @@ export const ListDingTalkInstallationsResponseSchema = z.object({
   installations: z.array(DingTalkInstallationSchema).default([]),
   configured: z.boolean().default(false),
   install_supported: z.boolean().optional(),
+  group_routing_supported: z.boolean().optional(),
 }).loose();
 
 export const EMPTY_LIST_DINGTALK_INSTALLATIONS_RESPONSE: ListDingTalkInstallationsResponse = {
   installations: [],
   configured: false,
+};
+
+export const DingTalkGroupRouteSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string().default(""),
+  installation_id: z.string().default(""),
+  conversation_id: z.string().default(""),
+  conversation_title: z.string().default(""),
+  agent_id: z.string().default(""),
+  discovered_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const EMPTY_DINGTALK_GROUP_ROUTE: DingTalkGroupRoute = {
+  id: "",
+  workspace_id: "",
+  installation_id: "",
+  conversation_id: "",
+  conversation_title: "",
+  agent_id: "",
+  discovered_at: "",
+  updated_at: "",
+};
+
+export const ListDingTalkGroupRoutesResponseSchema = z.object({
+  routes: z.array(DingTalkGroupRouteSchema).default([]),
+}).loose();
+
+export const EMPTY_LIST_DINGTALK_GROUP_ROUTES_RESPONSE: ListDingTalkGroupRoutesResponse = {
+  routes: [],
 };
 
 export const RedeemDingTalkBindingTokenResponseSchema = z.object({
@@ -2312,4 +2527,42 @@ export const EMPTY_REDEEM_WECOM_BINDING_TOKEN_RESPONSE: RedeemWecomBindingTokenR
   workspace_id: "",
   installation_id: "",
   wecom_user_id: "",
+};
+
+// Skills. Introduced for `POST /api/skills/:id/refresh` (update a skill from
+// its imported source). `config` stays a loose record: the server owns the
+// `origin` provenance shape and may extend it freely.
+export const SkillFileSchema = z.object({
+  id: z.string(),
+  skill_id: z.string(),
+  path: z.string(),
+  content: z.string().optional().default(""),
+  created_at: z.string().optional().default(""),
+  updated_at: z.string().optional().default(""),
+}).loose();
+
+export const SkillSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  name: z.string(),
+  description: z.string().optional().default(""),
+  content: z.string().optional().default(""),
+  config: z.record(z.string(), z.unknown()).optional().default({}),
+  created_by: z.string().nullable().optional().default(null),
+  created_at: z.string().optional().default(""),
+  updated_at: z.string().optional().default(""),
+  files: z.array(SkillFileSchema).optional().default([]),
+}).loose();
+
+export const EMPTY_SKILL: Skill = {
+  id: "",
+  workspace_id: "",
+  name: "",
+  description: "",
+  content: "",
+  config: {},
+  created_by: null,
+  created_at: "",
+  updated_at: "",
+  files: [],
 };

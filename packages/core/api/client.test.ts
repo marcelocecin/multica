@@ -915,6 +915,15 @@ describe("ApiClient", () => {
       url: "app://desktop/acme/issues",
       workspace_id: "ws-1",
       kind: "bug",
+      context: {
+        kind: "desktop_route_error",
+        trigger: "route-errorElement",
+        error: {
+          name: "TypeError",
+          message: "Cannot read properties of undefined",
+          stack: "TypeError: Cannot read properties of undefined",
+        },
+      },
     });
 
     expect(response).toEqual({
@@ -930,6 +939,15 @@ describe("ApiClient", () => {
           url: "app://desktop/acme/issues",
           workspace_id: "ws-1",
           kind: "bug",
+          context: {
+            kind: "desktop_route_error",
+            trigger: "route-errorElement",
+            error: {
+              name: "TypeError",
+              message: "Cannot read properties of undefined",
+              stack: "TypeError: Cannot read properties of undefined",
+            },
+          },
         }),
       }),
     );
@@ -1969,5 +1987,84 @@ describe("ApiClient startMikaOnboarding", () => {
         language: "en",
       }),
     ).resolves.toEqual({ started: false });
+  });
+});
+
+describe("ApiClient refreshSkill response schema", () => {
+  const validSkill = {
+    id: "skill-1",
+    workspace_id: "ws-1",
+    name: "review-helper",
+    description: "refreshed",
+    content: "# refreshed",
+    config: { origin: { type: "github", source_url: "https://github.com/acme/skills" } },
+    created_by: "user-1",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+    files: [
+      {
+        id: "file-1",
+        skill_id: "skill-1",
+        path: "ref.md",
+        content: "ref",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      },
+    ],
+  };
+
+  it("parses a valid refreshed skill", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(validSkill), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const result = await new ApiClient("https://api.example.test").refreshSkill("skill-1");
+    expect(result).toMatchObject({
+      id: "skill-1",
+      name: "review-helper",
+      files: [{ path: "ref.md" }],
+    });
+  });
+
+  it("falls back to the empty skill when the response is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ skill: 42 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const result = await new ApiClient("https://api.example.test").refreshSkill("skill-1");
+    expect(result).toMatchObject({ id: "", name: "", files: [] });
+  });
+
+  it("defaults optional fields the server may omit", async () => {
+    const { description, content, files, ...minimal } = validSkill;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(minimal), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const result = await new ApiClient("https://api.example.test").refreshSkill("skill-1");
+    expect(result).toMatchObject({
+      id: "skill-1",
+      description: "",
+      content: "",
+      files: [],
+    });
   });
 });

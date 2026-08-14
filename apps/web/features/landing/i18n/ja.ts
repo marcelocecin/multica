@@ -118,7 +118,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
           {
             title: "初回起動時に自動検出",
             description:
-              "Multica は Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI という22種類の対応ツールをスキャンし、見つかったものをそれぞれランタイムとして登録します。",
+              "Multica は Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DeepSeek Harness、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI という23種類の対応ツールをスキャンし、見つかったものをそれぞれランタイムとして登録します。",
           },
         ],
       },
@@ -139,7 +139,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         {
           title: "CLI をインストールしてマシンを接続",
           description:
-            "multica setup を実行すると、OAuth の手順を案内し、デーモンを起動し、22種類の対応コーディングツール(Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI)をスキャンします。すでにインストール済みのものは、自動的にランタイムとして登録されます。",
+            "multica setup を実行すると、OAuth の手順を案内し、デーモンを起動し、23種類の対応コーディングツール(Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DeepSeek Harness、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI)をスキャンします。すでにインストール済みのものは、自動的にランタイムとして登録されます。",
         },
         {
           title: "最初のエージェントを作成",
@@ -193,7 +193,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         {
           question: "Multica はどのコーディングエージェントに対応していますか?",
           answer:
-            "Multica は、Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI の22種類のコーディングツールに標準対応しています。デーモンが、すでにインストール済みの CLI を自動検出し、それぞれをランタイムとして登録します。オープンソースなので、独自のバックエンドを追加することもできます。",
+            "Multica は、Antigravity、Claude Code、CodeBuddy、Codex、Copilot、Cursor、DeepSeek Harness、DevEco Code、Grok、Hermes、Kimi、Kiro CLI、Oh-My-Pi、OpenClaw、OpenCode、Pi、Prime Agent、Qoder、Qoder CN、Qwen Code、QwenPaw、Reasonix、Trae CLI の23種類のコーディングツールに標準対応しています。デーモンが、すでにインストール済みの CLI を自動検出し、それぞれをランタイムとして登録します。オープンソースなので、独自のバックエンドを追加することもできます。",
         },
         {
           question: "セルフホストが必須ですか、それともクラウド版もありますか?",
@@ -269,6 +269,127 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         fixes: "バグ修正",
       },
       entries: [
+        {
+          version: "0.4.26",
+          date: "2026-08-14",
+          title:
+            "DeepSeek Harness ランタイム、ボードのドラッグ移動、Inbox のアーカイブ ショートカット",
+          changes: [],
+          features: [
+            "DeepSeek Harness でエージェントを実行できます。",
+            "ボードの空きスペースをドラッグすると、左右に移動できます。",
+            "Inbox で E を押すと、開いている通知をアーカイブできます。",
+            "セルフホストで、タスクの作業ディレクトリを好きなディスクに置けます。",
+          ],
+          improvements: [
+            "各ページのタイトルとツールバーが、同じ左端にそろいます。",
+            "Codex の最初の応答が遅いとき、待ち時間を長くできます。",
+            "Issue の担当や状態を変えても、新しいタスクを始めないようにできます。",
+          ],
+          fixes: [
+            "動かないエージェント CLI が、直し方を教えてくれます。",
+            "他の人のプライベートなランタイムを、API や CLI から使えなくなりました。",
+            "タスクの残りファイルで、そのフォルダーの multica コマンドが止まりません。",
+            "Volta や Vite Plus で入れたエージェントが認識されます。",
+            "最後の返信と入力欄のあいだの余白が戻りました。",
+            "ダークモードで、アクティブなタブに暗い四角が出ず、ホバーの角も丸く保たれます。",
+            "同じ Issue に、エージェントがもう一つタスクを始めません。",
+          ],
+        },
+        {
+          version: "0.4.25",
+          date: "2026-08-13",
+          title:
+            "ローカル フォルダーの並列モード、DingTalk のグループ振り分け、スキルの更新",
+          changes: [],
+          features: [
+            "ローカル フォルダーでタスクを並列に実行し、それぞれがブランチで成果を返します。",
+            "1 つの DingTalk ボットで、グループごとに別のエージェントを割り当てられます。",
+            "インポートしたスキルを、元のソースからワンクリックで更新できます。",
+            "Issue のメンションにカーソルを置くと、タイトルや担当者、進捗が見えます。",
+            "jcode のエージェントで、思考の深さを選べます。",
+            "セルフホストで、タスクの一時ファイルを大きなディスクに置けます。",
+          ],
+          improvements: [
+            "`multica daemon logs` がログファイルの場所を教えてくれます。",
+            "Hermes のタスクが、読み込んだ HERMES_HOME を示します。",
+          ],
+          fixes: [
+            "オフラインのランタイムを片付けても、タスク履歴が消えません。",
+            "Hermes の会話が、タスクの終了で履歴を失いません。",
+            "npm で入れたエージェントが Windows で起動します。",
+            "Windows で Codex の残りプロセスが居残りません。",
+            "ボードカードのアバターをクリックすると、担当者を変更できます。",
+            "ランタイムの活動とガントの日付が、画面の言語で表示されます。",
+            "ダークモードで、タブとページの境界線の色が変わりません。",
+            "組み込みの Bug トリアージ Autopilot が動くようになりました。",
+          ],
+        },
+        {
+          version: "0.4.24",
+          date: "2026-08-12",
+          title: "WeCom へのファイル送信、会話履歴の読み戻し、環境変数の一括編集",
+          changes: [],
+          features: [
+            "WeCom でエージェントが作ったファイルが、会話にそのまま届きます。",
+            "Web、Feishu、WeCom、DingTalk のチャットで、エージェントが前の話を忘れません。",
+            "エージェントの環境変数をまとめて貼り付け、一括で編集できます。",
+            "スマホやタブレットでも、行ごとのアーカイブやピン留め、名前の変更ができます。",
+            "ワークスペース作成時に、Issue の接頭辞を自分で決められます。",
+          ],
+          improvements: [
+            "モデル一覧で Codex gpt-5.6 の各バージョンを見分けられます。",
+            "設定とエージェントの画面で、各チャネルに自身の印が付きます。",
+            "長い Codex のチャットがディスク容量を占め続けません。",
+            "バックグラウンドの整理中でも、リポジトリの取得が止まりません。",
+            "ワークスペースの削除が速くなり、ほかの操作も遅くなりません。",
+            "手元の daemon が、どのインスタンスの応答かを示します。",
+            "デスクトップのエラー報告に診断情報が付き、調査しやすくなりました。",
+          ],
+          fixes: [
+            "中国語、日本語、韓国語の句読点に接した太字が、また正しく表示されます。",
+            "Android で送信や停止のあとも、キーボードが閉じません。",
+            "セルフホストの Hermes のチャットが、一つおきに失敗しません。",
+            "残ったポート設定で `multica login` が失敗しません。",
+            "Cursor のタスクが、設定した MCP サーバーに届きます。",
+            "Slack から作った Issue のタイトルのリンクが、書き換わりません。",
+            "PR が別のワークスペースの同じ番号の Issue を閉じません。",
+            "どの保存方式でも、添付ファイルのダウンロードボタンで実際に保存できます。",
+            "エージェントの結果が途中で切れません。",
+          ],
+        },
+        {
+          version: "0.4.23",
+          date: "2026-08-11",
+          title: "WeCom の写真とファイル、Reasonix の思考レベル、ブラウザー風の履歴移動",
+          changes: [],
+          features: [
+            "WeCom のボットに送った写真、ファイル、動画がエージェントに届きます。",
+            "Reasonix のエージェントで、思考の深さを選べます。",
+            "Cmd+[ と Cmd+] で、見てきたページを前後にたどれます。",
+          ],
+          improvements: [
+            "新しいサブ Issue は、親と同じプロジェクトと担当者で始まります。",
+            "Codex のタスクが使うディスク容量が大きく減ります。",
+            "たくさんのタスクをまとめて取り消す操作が速くなりました。",
+            "DingTalk の設定に DingTalk 自身の印が付きます。",
+            "エージェントがコメントに返信するとき、ほかの人を巻き込みません。",
+          ],
+          fixes: [
+            "Hermes のエージェントが、タスクをまたいで記憶を保ちます。",
+            "Reasonix のタスクが、誰も答えられない質問で止まりません。",
+            "Claude の長いコンテキストのモデルでも、選んだ思考の深さが残ります。",
+            "ワークスペースの削除が「Deleting…」のまま止まりません。",
+            "タスクを取り消すと、チャネルの入力中表示も止まります。",
+            "エディターの添付ファイルがまたダウンロードできます。",
+            "同じ Issue コマンドを二度送っても、ファイルが二重に上がりません。",
+            "Issue を別のワークスペースのプロジェクトへ移せなくなりました。",
+            "送信や停止のあとも、入力欄のフォーカスが残ります。",
+            "エージェントの詳細に空のメニューが出ません。",
+            "とても長い Issue やプロジェクトの名前が、行を崩しません。",
+            "セルフホストでも、設定した差出人アドレスからメールが届きます。",
+          ],
+        },
         {
           version: "0.4.22",
           date: "2026-08-10",

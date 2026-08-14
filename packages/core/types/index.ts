@@ -31,12 +31,6 @@ export type {
   AgentBuilderSessionSummary,
   AgentPermissionScope,
   StoredAgentDraft,
-  AgentTemplate,
-  AgentTemplateSummary,
-  AgentTemplateSkillRef,
-  CreateAgentFromTemplateRequest,
-  CreateAgentFromTemplateResponse,
-  CreateAgentFromTemplateFailure,
   UpdateAgentRequest,
   AgentEnvResponse,
   UpdateAgentEnvRequest,
@@ -83,6 +77,17 @@ export type {
 } from "./agent";
 export { RUNTIME_PROFILE_PROTOCOL_FAMILIES } from "./agent";
 export type { Workspace, WorkspaceRepo, Member, MemberRole, User, MemberWithUser, Invitation } from "./workspace";
+export type {
+  PluginBinding,
+  PluginInstallation,
+  PluginCatalogContribution,
+  PluginCatalogRelease,
+  PluginCatalogDiagnostic,
+  PluginCatalogResponse,
+  PluginInstallationListResponse,
+  PluginReleaseRequest,
+  PluginBindingRequest,
+} from "./plugin";
 export type { InboxItem, InboxSeverity, InboxItemType, InboxWorkspaceUnread } from "./inbox";
 export type { NotificationGroupKey, NotificationGroupValue, NotificationPreferences, NotificationPreferenceResponse } from "./notification-preference";
 export type { Comment, CommentType, CommentAuthorType, CommentTriggerPreview, CommentTriggerPreviewAgent, CommentTriggerSource, CommentTriggerOutcome, CommentTriggerStatus, Reaction } from "./comment";
@@ -152,6 +157,7 @@ export type {
   ProjectResourceRef,
   GithubRepoResourceRef,
   LocalDirectoryResourceRef,
+  LocalDirectoryExecutionMode,
   CreateProjectResourceRequest,
   UpdateProjectResourceRequest,
   ListProjectResourcesResponse,
@@ -198,9 +204,12 @@ export type {
 } from "./slack";
 export type {
   DingTalkInstallation,
+  DingTalkGroupRoute,
   ListDingTalkInstallationsResponse,
+  ListDingTalkGroupRoutesResponse,
   RegisterDingTalkBYORequest,
   RedeemDingTalkBindingTokenResponse,
+  UpdateDingTalkGroupRouteRequest,
 } from "./dingtalk";
 export type {
   WecomInstallation,
@@ -271,4 +280,13 @@ export type {
   CreateBillingCheckoutSessionResponse,
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
+  WorkspaceSubscriptionInterval,
+  WorkspaceSubscriptionEntitlements,
+  WorkspaceSubscriptionSummary,
+  WorkspaceSubscriptionPrice,
+  WorkspaceSubscriptionPrices,
+  CreateWorkspaceSubscriptionCheckoutRequest,
+  CreateWorkspaceSubscriptionCheckoutResponse,
+  WorkspaceSubscriptionSeatReconcileResult,
+  CreateWorkspaceSubscriptionPortalResponse,
 } from "./billing";

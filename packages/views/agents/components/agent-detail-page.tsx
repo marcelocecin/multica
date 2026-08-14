@@ -459,6 +459,7 @@ function DetailHeader({
   const { t } = useT("agents");
   const timeAgo = useTimeAgo();
   const isArchived = !!agent.archived_at;
+  const hasMoreActions = !!onArchive;
 
   return (
     <header className="shrink-0 border-b bg-background px-4 pb-5 pt-3 sm:px-6">
@@ -539,26 +540,26 @@ function DetailHeader({
                 {t(($) => $.detail.assign_work)}
               </Button>
             )}
-            {!isArchived && canArchive ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-sm" />}
-              aria-label={t(($) => $.detail.more_actions_aria)}
-            >
-              <MoreHorizontal
-                className="h-4 w-4 text-muted-foreground"
-                aria-hidden="true"
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-auto">
-              {onArchive && (
-                <DropdownMenuItem variant="destructive" onClick={onArchive}>
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t(($) => $.detail.more_archive)}
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            {!isArchived && canArchive && hasMoreActions ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={<Button variant="ghost" size="icon-sm" />}
+                  aria-label={t(($) => $.detail.more_actions_aria)}
+                >
+                  <MoreHorizontal
+                    className="h-4 w-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-auto">
+                  {onArchive && (
+                    <DropdownMenuItem variant="destructive" onClick={onArchive}>
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t(($) => $.detail.more_archive)}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
           </div>
         </div>
@@ -569,16 +570,14 @@ function DetailHeader({
 
 function BackHeader({ paths, title }: { paths: string; title: string }) {
   return (
-    <PageHeader className="justify-between px-5">
-      <div className="flex items-center gap-2">
-        <AppLink
-          href={paths}
-          className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {title}
-        </AppLink>
-      </div>
+    <PageHeader>
+      <AppLink
+        href={paths}
+        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        {title}
+      </AppLink>
     </PageHeader>
   );
 }

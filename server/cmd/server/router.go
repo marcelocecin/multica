@@ -59,6 +59,7 @@ var corsAllowedHeaders = []string{
 	"Accept",
 	"Authorization",
 	"Content-Type",
+	"Idempotency-Key",
 	"X-Workspace-ID",
 	"X-Workspace-Slug",
 	"X-Request-ID",
@@ -725,7 +726,27 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// Mirrors slack.NewOutbound(...).Register(bus). Without it
 				// the agent's reply lands only in Multica's web UI — the
 				// user in WeCom sees no response.
-				wecom.NewOutbound(queries, wecomSenders, slog.Default()).Register(bus)
+				//
+				// WithAttachments adds the second hop: the files the agent
+				// bound to that reply are read back out of object storage and
+				// sent into the chat behind it. Passed only when this
+				// deployment configured storage — with none there is nothing
+				// to read an attachment out of, and the option is what the
+				// delivery path checks for.
+				//
+				// DeclareChannelFileDelivery is the same condition said to the
+				// agent: a run only gets told it can send a file where this
+				// branch actually built the hop that sends it. The two lines
+				// sit together on purpose — a deployment that has the storage
+				// and a deployment whose agents are promised delivery must be
+				// the same deployment, and the only way to keep that true is
+				// for one `if` to decide both.
+				wecomOutboundOpts := []wecom.OutboundOption{}
+				if store != nil {
+					wecomOutboundOpts = append(wecomOutboundOpts, wecom.WithAttachments(store))
+					h.DeclareChannelFileDelivery(string(wecom.TypeWecom))
+				}
+				wecom.NewOutbound(queries, wecomSenders, slog.Default(), wecomOutboundOpts...).Register(bus)
 
 				// Ranges the media fetcher may dial despite looking reserved.
 				// Empty by default, which leaves the SSRF guard exactly as
@@ -1139,6 +1160,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// are admin-gated below).
 					r.Get("/runtime-profiles", h.ListRuntimeProfiles)
 					r.Get("/runtime-profiles/{profileId}", h.GetRuntimeProfile)
+					r.Get("/plugins", h.ListPlugins)
+					r.Get("/plugins/private", h.ListPrivatePlugins)
+					r.Get("/plugins/private/{pluginRef}", h.GetPrivatePluginStatus)
+					r.Get("/plugins/catalog", h.ListPluginCatalog)
+					r.Get("/plugins/catalog/{pluginKey}", h.GetPluginCatalogRelease)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
@@ -1156,6 +1182,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Patch("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
 					r.Put("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
 					r.Delete("/runtime-profiles/{profileId}", h.DeleteRuntimeProfile)
+					r.Post("/plugins/install", h.InstallPlugin)
+					r.Post("/plugins/private/install", h.InstallPrivatePlugin)
+					r.Post("/plugins/{installationId}/upgrade", h.UpgradePlugin)
+					r.Post("/plugins/{installationId}/enable", h.EnablePlugin)
+					r.Post("/plugins/{installationId}/disable", h.DisablePlugin)
+					r.Post("/plugins/{installationId}/rollback", h.RollbackPlugin)
+					r.Delete("/plugins/{installationId}", h.UninstallPlugin)
 				})
 				// Owner-only access
 				r.With(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner")).Delete("/", h.DeleteWorkspace)
@@ -1223,11 +1256,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
 					r.Get("/dingtalk/installations", h.ListDingTalkInstallations)
+					r.Get("/dingtalk/group-routes", h.ListDingTalkGroupRoutes)
 				})
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Delete("/dingtalk/installations/{installationId}", h.RevokeDingTalkInstallation)
 					r.Post("/dingtalk/install/byo", h.RegisterDingTalkBYO)
+					r.Patch("/dingtalk/group-routes/{routeId}", h.UpdateDingTalkGroupRoute)
 				})
 			})
 		})
@@ -1313,6 +1348,30 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/checkout-sessions", h.CreateCloudBillingCheckoutSession)
 			r.Get("/checkout-sessions/{sessionId}", h.GetCloudBillingCheckoutSession)
 			r.Post("/portal-sessions", h.CreateCloudBillingPortalSession)
+		})
+
+		// Workspace subscriptions use the same cloud transport and Stripe
+		// webhook as the existing owner-credit billing surface, but every request
+		// is workspace-scoped. Entitlements, summary and prices are
+		// member-readable; Checkout, seat reconcile, and Portal mutations require
+		// owner/admin. The handlers also enforce
+		// billing_workspace_subscriptions so a route refactor cannot
+		// accidentally bypass the rollout flag.
+		r.Route("/api/cloud-subscriptions", func(r chi.Router) {
+			r.Use(handler.RequireHumanActor)
+
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireWorkspaceMember(queries))
+				r.Get("/entitlements", h.GetCloudWorkspaceEntitlements)
+				r.Get("/summary", h.GetCloudWorkspaceSubscriptionSummary)
+				r.Get("/prices", h.GetCloudWorkspaceSubscriptionPrices)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireWorkspaceRole(queries, "owner", "admin"))
+				r.Post("/checkout-sessions", h.CreateCloudWorkspaceSubscriptionCheckout)
+				r.Post("/seats/reconcile", h.ReconcileCloudWorkspaceSubscriptionSeats)
+				r.Post("/portal-sessions", h.CreateCloudWorkspaceSubscriptionPortal)
+			})
 		})
 
 		// --- Workspace-scoped routes (all require workspace membership) ---
@@ -1518,11 +1577,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/agents", func(r chi.Router) {
 				r.Get("/", h.ListAgents)
 				r.Post("/", h.CreateAgent)
-				// Agent templates: pre-configured instructions + skill refs.
-				// Picking a template imports the referenced skills into the
-				// workspace (find-or-create by name) and creates the agent
-				// with the template's instructions in one transaction.
-				r.Post("/from-template", h.CreateAgentFromTemplate)
 				// The workspace's built-in Chief of Staff. Server-owned: the
 				// caller supplies only a runtime and a language, so a client
 				// cannot mint an agent carrying `system_key` and thereby claim
@@ -1554,13 +1608,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
-			// Agent templates catalog (browse + detail). The Create flow
-			// lives under /api/agents/from-template above; this route is for
-			// the picker UI to list available templates.
-			r.Route("/api/agent-templates", func(r chi.Router) {
-				r.Get("/", h.ListAgentTemplates)
-				r.Get("/{slug}", h.GetAgentTemplate)
-			})
 			r.Route("/api/agent-builder/sessions", func(r chi.Router) {
 				// The creation studio's unfinished drafts. Builder sessions are
 				// invisible to every chat list (their carrier is kind='system'),
@@ -1583,6 +1630,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetSkill)
 					r.Put("/", h.UpdateSkill)
 					r.Delete("/", h.DeleteSkill)
+					r.Post("/refresh", h.RefreshSkill)
 					r.Get("/labels", h.ListLabelsForSkill)
 					r.Post("/labels", h.AttachLabelToSkill)
 					r.Delete("/labels/{labelId}", h.DetachLabelFromSkill)

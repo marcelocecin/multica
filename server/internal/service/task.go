@@ -26,6 +26,8 @@ import (
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
+	"github.com/multica-ai/multica/server/pkg/plugincontract"
+	"github.com/multica-ai/multica/server/pkg/pluginruntime"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
@@ -2157,11 +2159,35 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 	}
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
-		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+	}
+	// Reconcile once per distinct agent instead of once per cancelled row:
+	// cancelling an issue often stops several tasks owned by the same agent,
+	// and each reconcile is a DB write plus a status broadcast. Matches
+	// CancelTasksForAgent's single-reconcile shape (D#3319).
+	for _, agentID := range distinctAgentIDs(cancelled) {
+		s.ReconcileAgentStatus(ctx, agentID)
 	}
 	s.notifyTasksFinished(cancelled)
 	return nil
+}
+
+// distinctAgentIDs returns each agent id appearing in the cancelled rows once,
+// preserving first-seen order. Bulk cancellations frequently stop several tasks
+// owned by the same agent; reconciling per distinct agent (rather than per row)
+// collapses the redundant RefreshAgentStatusFromTasks writes and status
+// broadcasts down to one per agent without changing the final agent status.
+func distinctAgentIDs(cancelled []db.AgentTaskQueue) []pgtype.UUID {
+	seen := make(map[pgtype.UUID]struct{}, len(cancelled))
+	ids := make([]pgtype.UUID, 0, len(cancelled))
+	for _, t := range cancelled {
+		if _, dup := seen[t.AgentID]; dup {
+			continue
+		}
+		seen[t.AgentID] = struct{}{}
+		ids = append(ids, t.AgentID)
+	}
+	return ids
 }
 
 // CancelTasksForAgent cancels every active task belonging to an agent
@@ -2198,8 +2224,13 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 	}
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
-		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+	}
+	// Reconcile once per distinct agent instead of once per cancelled row: an
+	// edited/deleted trigger comment can cancel several tasks owned by the same
+	// agent, and each reconcile is a DB write plus a status broadcast (D#3319).
+	for _, agentID := range distinctAgentIDs(cancelled) {
+		s.ReconcileAgentStatus(ctx, agentID)
 	}
 	s.notifyTasksFinished(cancelled)
 	return cancelled, nil
@@ -2209,11 +2240,23 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 // task:cancelled for every row. Callers must invoke this AFTER committing the
 // cancellation so subscribers don't observe a "cancelled" event for a row
 // that the tx might still roll back.
-func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, cancelled []db.AgentTaskQueue) {
+//
+// workspaceID comes from the caller instead of being resolved per task, because
+// the transaction these callers have just committed can delete the row the
+// resolution would read. A chat task's workspace is reached through its
+// chat_session, and both DeleteChatSession and the runtime teardown remove that
+// session — the teardown by deleting the system agent it hangs off. Afterwards
+// ResolveTaskWorkspaceID finds nothing and returns "", and publishTaskEvent
+// drops an event with no workspace before it reaches the bus: the rows are
+// cancelled, nobody is told, and every queue view and channel indicator keeps
+// showing a run that no longer exists. Each caller already knows the workspace
+// — it is the one whose session, member or runtime is being torn down — so the
+// lookup is not needed and cannot fail.
+func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, workspaceID string, cancelled []db.AgentTaskQueue) {
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
 		s.ReconcileAgentStatus(ctx, t.AgentID)
-		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
+		s.publishTaskEvent(protocol.EventTaskCancelled, workspaceID, t)
 	}
 	s.notifyTasksFinished(cancelled)
 }
@@ -2260,6 +2303,14 @@ type CancelTaskOptions struct {
 	QueuedOnly          bool
 	ExpectedChatSession pgtype.UUID
 	QueueAction         string
+	// ErrorMessage / FailureReason, when set, are persisted onto the cancelled
+	// row. Only for cancellations the USER did not ask for (e.g. the worktree
+	// claim gate refusing a too-old daemon): a user-initiated cancel needs no
+	// explanation, but a server-initiated one without a persisted reason
+	// surfaces as an unexplained "cancelled" whose only trace is a 4xx in a
+	// daemon log the user never sees.
+	ErrorMessage  string
+	FailureReason string
 }
 
 // CancelTask cancels a single task by ID. It broadcasts a task:cancelled event
@@ -2272,6 +2323,24 @@ func (s *TaskService) CancelTask(ctx context.Context, taskID pgtype.UUID) (*db.A
 	// synchronous restore anyway, and the durable path is the only one that can
 	// hand the prompt back at all.
 	result, err := s.CancelTaskWithResult(ctx, taskID, CancelTaskOptions{ClientSupportsDraftRestore: true})
+	if err != nil {
+		return nil, err
+	}
+	return &result.Task, nil
+}
+
+// CancelTaskWithReason cancels a task the SERVER decided to stop, persisting an
+// actionable reason onto the row. It runs the same full cancellation flow as
+// CancelTask — audit capture, chat settle, agent status reconcile,
+// task:cancelled broadcast, NotifyTaskFinished — because a raw
+// CancelAgentTaskWithReason query bypass leaves the agent pill running, the
+// live card stale, and any capacity/serial waiter unwoken.
+func (s *TaskService) CancelTaskWithReason(ctx context.Context, taskID pgtype.UUID, errorMessage, failureReason string) (*db.AgentTaskQueue, error) {
+	result, err := s.CancelTaskWithResult(ctx, taskID, CancelTaskOptions{
+		ClientSupportsDraftRestore: true,
+		ErrorMessage:               errorMessage,
+		FailureReason:              failureReason,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2316,7 +2385,19 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 				return err
 			}
-			cancelled, err := qtx.CancelAgentTask(ctx, taskID)
+			var (
+				cancelled db.AgentTaskQueue
+				err       error
+			)
+			if opts.ErrorMessage != "" || opts.FailureReason != "" {
+				cancelled, err = qtx.CancelAgentTaskWithReason(ctx, db.CancelAgentTaskWithReasonParams{
+					ID:            taskID,
+					Error:         pgtype.Text{String: opts.ErrorMessage, Valid: opts.ErrorMessage != ""},
+					FailureReason: pgtype.Text{String: opts.FailureReason, Valid: opts.FailureReason != ""},
+				})
+			} else {
+				cancelled, err = qtx.CancelAgentTask(ctx, taskID)
+			}
 			if err != nil {
 				return err
 			}
@@ -2657,6 +2738,27 @@ func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.
 // atomic, so concurrent callers cannot finalize the same task twice and a
 // call with no pending marker is a no-op. The settled outcome is broadcast
 // as chat:cancel_finalized since the cancel HTTP response has long returned.
+// RebroadcastCancelledTask re-announces an already-cancelled task after a
+// post-terminal delivery landed on its row (the cancel-ack's branch name or
+// preserved-worktree error). The original task:cancelled broadcast fired at
+// cancel time, BEFORE the daemon's ack — clients may have refetched a row
+// without the delivery and will not refetch again on their own. Consumers
+// treat task:cancelled as idempotent cache invalidation, so a replay is safe.
+func (s *TaskService) RebroadcastCancelledTask(ctx context.Context, taskID pgtype.UUID) {
+	task, err := s.Queries.GetAgentTask(ctx, taskID)
+	if err != nil {
+		slog.Warn("rebroadcast cancelled task: load failed",
+			"task_id", util.UUIDToString(taskID), "error", err)
+		return
+	}
+	if task.Status != "cancelled" {
+		// A complete/fail callback already announced its own terminal event
+		// carrying the row's final fields; nothing stale to refresh.
+		return
+	}
+	s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
+}
+
 func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID pgtype.UUID) {
 	var (
 		task    db.AgentTaskQueue
@@ -3438,7 +3540,7 @@ func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID 
 // queued chat message could be claimed in the window between the task
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
-func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
+func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir, branchName string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
 	var task db.AgentTaskQueue
 	// chatAssistantMsg is the single assistant outcome row written for a chat
 	// task inside the completion transaction below. It is broadcast (chat:done)
@@ -3453,6 +3555,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 			Result:                result,
 			SessionID:             pgtype.Text{String: sessionID, Valid: sessionID != ""},
 			WorkDir:               pgtype.Text{String: workDir, Valid: workDir != ""},
+			BranchName:            pgtype.Text{String: branchName, Valid: branchName != ""},
 			SessionRolloutMissing: sessionRolloutMissing,
 			RetiredSessionID:      pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
 		})
@@ -3842,7 +3945,7 @@ func (s *TaskService) observeChatOutputLocalPath(task db.AgentTaskQueue, body st
 // coarse bucket. Daemon callers that already produced a refined reason
 // (via classifyPoisonedError, the timeout / runtime classifier, etc.)
 // will have their value preserved untouched.
-func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
+func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, branchName, failureReason string, sessionRolloutMissing bool, retiredSessionID string) (*db.AgentTaskQueue, error) {
 	// MUL-2946: synthesise a refined reason from the error text whenever the
 	// caller didn't supply one. This is the last write-path guard against
 	// "agent_error" coarse rows ending up in agent_task_queue.failure_reason
@@ -3911,11 +4014,16 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 			return err
 		}
 		t, err := qtx.FailAgentTask(ctx, db.FailAgentTaskParams{
-			ID:                    taskID,
-			Error:                 pgtype.Text{String: errMsg, Valid: true},
-			FailureReason:         pgtype.Text{String: failureReason, Valid: failureReason != ""},
-			SessionID:             pgtype.Text{String: sessionID, Valid: sessionID != ""},
-			WorkDir:               pgtype.Text{String: workDir, Valid: workDir != ""},
+			ID:            taskID,
+			Error:         pgtype.Text{String: errMsg, Valid: true},
+			FailureReason: pgtype.Text{String: failureReason, Valid: failureReason != ""},
+			SessionID:     pgtype.Text{String: sessionID, Valid: sessionID != ""},
+			WorkDir:       pgtype.Text{String: workDir, Valid: workDir != ""},
+			// A failed run can still have produced a branch: worktree mode
+			// commits whatever the agent left before tearing the worktree down,
+			// precisely so partial work survives. Dropping the name here would
+			// leave that commit with no pointer to it.
+			BranchName:            pgtype.Text{String: branchName, Valid: branchName != ""},
 			SessionRolloutMissing: sessionRolloutMissing,
 			RetiredSessionID:      pgtype.Text{String: retiredSessionID, Valid: retiredSessionID != ""},
 		})
@@ -4234,7 +4342,11 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 	// reason-independent text guard is the load-bearing protection for both new
 	// and already persisted rows. Keep it in sync with the GetLastTaskSession /
 	// GetLastChatTaskSession resume queries.
-	if strings.Contains(lower, "could not resolve authentication method") {
+	//
+	// The phrase itself lives in taskfailure.AuthMethodUnresolved, shared with
+	// the daemon's in-turn fresh-session retry gate so the two layers cannot
+	// disagree about which errors mean "this session can never be resumed".
+	if taskfailure.AuthMethodUnresolved(errorText) {
 		return true
 	}
 	// Same defense-in-depth for the provider-agnostic empty-message shape:
@@ -4780,6 +4892,79 @@ func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.
 	skills := s.LoadAgentSkills(ctx, agentID)
 	skills = append(skills, s.BuiltinSkills()...)
 	return BuildAgentSkillBundles(skills)
+}
+
+type PluginExecutionManifestData struct {
+	ID                   string                        `json:"id"`
+	SnapshotID           string                        `json:"snapshot_id,omitempty"`
+	SnapshotRevision     int64                         `json:"snapshot_revision"`
+	SnapshotDigest       string                        `json:"snapshot_digest,omitempty"`
+	ComposerVersion      string                        `json:"composer_version"`
+	SchemaVersion        int32                         `json:"schema_version"`
+	OrderedContributions []pluginruntime.CompiledEntry `json:"ordered_contributions"`
+}
+
+// LoadTaskPluginSkillBundles resolves only the immutable artifact files named
+// by the task's enqueue-time execution manifest. It deliberately does not read
+// current installation state, so disable/upgrade cannot mutate an in-flight or
+// retried run's inputs.
+func (s *TaskService) LoadTaskPluginSkillBundles(ctx context.Context, taskID pgtype.UUID) ([]AgentSkillData, []AgentSkillRefData, *PluginExecutionManifestData, error) {
+	manifest, err := s.Queries.GetPluginExecutionManifestByTask(ctx, taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("load plugin execution manifest: %w", err)
+	}
+	entries, err := pluginruntime.ParseEntries(manifest.OrderedContributions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	data := &PluginExecutionManifestData{
+		ID:                   util.UUIDToString(manifest.ID),
+		SnapshotID:           util.UUIDToString(manifest.SnapshotID),
+		SnapshotRevision:     manifest.SnapshotRevision,
+		SnapshotDigest:       manifest.SnapshotDigest.String,
+		ComposerVersion:      manifest.ComposerVersion,
+		SchemaVersion:        manifest.SchemaVersion,
+		OrderedContributions: entries,
+	}
+	if len(entries) == 0 {
+		return nil, nil, data, nil
+	}
+
+	skills := make([]AgentSkillData, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ContributionType != plugincontract.ContributionAgentSkillV1 || entry.ArtifactFileID == "" {
+			return nil, nil, nil, fmt.Errorf("execution manifest contains unsupported plugin contribution")
+		}
+		artifactFileID, parseErr := util.ParseUUID(entry.ArtifactFileID)
+		if parseErr != nil {
+			return nil, nil, nil, fmt.Errorf("execution manifest contains invalid artifact file id")
+		}
+		artifact, getErr := s.Queries.GetPluginArtifactFile(ctx, artifactFileID)
+		if getErr != nil {
+			return nil, nil, nil, fmt.Errorf("load pinned plugin artifact: %w", getErr)
+		}
+		releaseID, parseErr := util.ParseUUID(entry.ReleaseID)
+		if parseErr != nil || artifact.ReleaseID != releaseID || artifact.Path != entry.EntryPath || artifact.Digest != entry.EntryDigest || plugincontract.DigestBytes([]byte(artifact.Content)) != entry.EntryDigest {
+			return nil, nil, nil, fmt.Errorf("pinned plugin artifact failed digest validation")
+		}
+		skills = append(skills, AgentSkillData{
+			ID:          "plugin:" + entry.ContributionID,
+			Source:      skillbundle.SourcePlugin,
+			Name:        entry.ContributionKey,
+			Description: entry.Description,
+			Content:     artifact.Content,
+		})
+	}
+	bundles, refs := BuildAgentSkillBundles(skills)
+	for i := range refs {
+		if refs[i].Hash != entries[i].SkillBundleHash || refs[i].SizeBytes != entries[i].SkillSizeBytes || refs[i].FileCount != entries[i].SkillFileCount {
+			return nil, nil, nil, fmt.Errorf("pinned plugin skill bundle failed manifest validation")
+		}
+	}
+	return bundles, refs, data, nil
 }
 
 func BuildAgentSkillBundles(skills []AgentSkillData) ([]AgentSkillData, []AgentSkillRefData) {

@@ -320,15 +320,15 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// empty, so the whole-group check stays authoritative before deciding
 		// not to signal — a descendant that outlived the leader must still be
 		// terminated below.
-		if cmd.Process != nil && !waitProcessGroupGone(cmd.Process, 0) {
-			signalProcessGroup(cmd.Process, syscall.SIGTERM)
+		if cmd.Process != nil && !waitProcessGroupGone(cmd, 0) {
+			signalProcessGroup(cmd, syscall.SIGTERM)
 			// Escalate to a group SIGKILL unless the WHOLE process group has
 			// exited within the grace window — keyed off the process group,
 			// not procDone, so a SIGTERM-ignoring descendant that does not
 			// hold prime-agent's stdout cannot let the leader exit, close
 			// procDone, and skip the SIGKILL.
-			if !waitProcessGroupGone(cmd.Process, primeTerminateGrace()) {
-				signalProcessGroup(cmd.Process, syscall.SIGKILL)
+			if !waitProcessGroupGone(cmd, primeTerminateGrace()) {
+				signalProcessGroup(cmd, syscall.SIGKILL)
 			}
 		}
 		_ = stdout.Close()
