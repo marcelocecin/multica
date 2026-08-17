@@ -69,6 +69,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"issue_property":                    workspaceDelete,
 	"issue_pull_request":                workspaceDelete,
 	"issue_reaction":                    workspaceDelete,
+	"issue_status":                      workspaceDelete,
 	"issue_subscriber":                  workspaceDelete,
 	"issue_to_label":                    workspaceDelete,
 	"issue_vcs_pull_request":            workspaceDelete,
@@ -80,6 +81,8 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"lark_outbound_card_message":        workspaceDelete,
 	"lark_user_binding":                 workspaceDelete,
 	"member":                            workspaceDelete,
+	"agent_mcp_server":                  workspaceDelete,
+	"workspace_mcp_server":              workspaceDelete,
 	"notification_preference":           workspaceDelete,
 	"personal_access_token":             workspaceDeleteKeep,
 	"pinned_item":                       workspaceDelete,
@@ -91,7 +94,10 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"plugin_grant":                      workspaceDelete,
 	"plugin_health":                     workspaceDelete,
 	"plugin_identity":                   workspaceDeleteKeep,
+	"plugin_installation_config":        workspaceDelete,
 	"plugin_installation":               workspaceDelete,
+	"plugin_remote_mcp_oauth_state":     workspaceDelete,
+	"plugin_remote_mcp_secret":          workspaceDelete,
 	"plugin_release":                    workspaceDeleteKeep,
 	"plugin_workspace_capability_state": workspaceDelete,
 	"project":                           workspaceDelete,
@@ -120,6 +126,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"webhook_delivery":                  workspaceDelete,
 	"workspace":                         workspaceDelete,
 	"workspace_invitation":              workspaceDelete,
+	"workspace_share_link":              workspaceDelete,
 }
 
 func TestWorkspaceDeletionManifestCoversPublicSchema(t *testing.T) {
