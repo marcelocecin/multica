@@ -672,7 +672,7 @@ func TestPrimeListModels(t *testing.T) {
 	marker := filepath.Join(dir, "invoked")
 	bin := writeFakePrimeScript(t, "#!/bin/sh\ntouch '"+marker+"'\nexit 0\n")
 
-	cat, err := ListModels(context.Background(), "prime", bin)
+	cat, err := ListModels(context.Background(), "prime", Command{Path: bin})
 	if err != nil {
 		t.Fatalf("prime ListModels should not error, got: %v", err)
 	}

@@ -124,7 +124,7 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	primeArgs = append(primeArgs, filterCustomArgs(opts.ExtraArgs, primeBlockedArgs, b.cfg.Logger)...)
 	primeArgs = append(primeArgs, filterCustomArgs(opts.CustomArgs, primeBlockedArgs, b.cfg.Logger)...)
 
-	cmd := exec.CommandContext(runCtx, execPath, primeArgs...)
+	cmd := b.cfg.commandAt(execPath).exec(runCtx, primeArgs...)
 	// Run prime-agent in its own process group so cancellation can reach the
 	// whole tree — the IPython kernel and any tool subprocess it spawns, not
 	// just the direct child. The default CommandContext behaviour SIGKILLs
