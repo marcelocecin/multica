@@ -15,9 +15,11 @@ import (
 // primeCancelFakeScript returns a POSIX-sh script that impersonates a
 // long-running `prime-agent --mode acp`: it spawns a background grandchild
 // (standing in for Prime's IPython kernel or a bash tool subprocess),
-// records both its own (process-group-leader) pid and the grandchild pid,
 // answers initialize/session/new normally, then hangs on session/prompt
-// (never responding) so the test can cancel mid-turn. When ignoreTerm is
+// (never responding) so the test can cancel mid-turn — publishing its own
+// (process-group-leader) pid and the grandchild's only once that turn is in
+// flight, which is what orders the cancellation after the handshake rather
+// than racing it. When ignoreTerm is
 // true the whole group ignores SIGTERM, forcing the SIGKILL escalation path.
 func primeCancelFakeScript(ignoreTerm bool) string {
 	trap := "trap 'exit 0' TERM\n"
@@ -29,9 +31,6 @@ func primeCancelFakeScript(ignoreTerm bool) string {
 # terminated on cancellation, not just the direct child.
 ( sleep 300 ) &
 child=$!
-if [ -n "$PRIME_PID_FILE" ]; then
-  printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
-fi
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
@@ -42,6 +41,12 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_cancel"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
+      # The pid file doubles as the test's synchronisation point, so publish it
+      # only now: written before the read loop it orders against nothing, and
+      # the cancellation could land during the handshake instead of mid-turn.
+      if [ -n "$PRIME_PID_FILE" ]; then
+        printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
+      fi
       # Never respond — simulates a turn still in flight when cancelled.
       ;;
     *)
@@ -64,9 +69,6 @@ func primeMixedSignalFakeScript() string {
 # it does not keep prime-agent's stdout open after the leader exits.
 ( trap '' TERM; sleep 300 ) </dev/null >/dev/null 2>&1 &
 child=$!
-if [ -n "$PRIME_PID_FILE" ]; then
-  printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
-fi
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
@@ -77,6 +79,10 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_cancel"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
+      # Published mid-turn on purpose; see primeCancelFakeScript.
+      if [ -n "$PRIME_PID_FILE" ]; then
+        printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
+      fi
       ;;
     *)
       printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id"
@@ -256,9 +262,6 @@ func primeLeaderExitsOnEOFFakeScript() string {
 	return "#!/bin/sh\n" +
 		`( trap '' TERM; sleep 300 ) </dev/null >/dev/null 2>&1 &
 child=$!
-if [ -n "$PRIME_PID_FILE" ]; then
-  printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
-fi
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
@@ -269,6 +272,10 @@ while IFS= read -r line; do
       printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_cancel"}}\n' "$id"
       ;;
     *'"method":"session/prompt"'*)
+      # Published mid-turn on purpose; see primeCancelFakeScript.
+      if [ -n "$PRIME_PID_FILE" ]; then
+        printf '%s %s\n' "$$" "$child" > "$PRIME_PID_FILE"
+      fi
       ;;
     *)
       printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id"
@@ -279,21 +286,23 @@ exit 0
 `
 }
 
-// All four cancellation/timeout scenarios below can observe "failed" instead
-// of "aborted"/"timeout": whichever process (leader or grandchild) exits last
-// closes prime-agent's stdout, and that EOF races the still-in-flight
-// session/prompt RPC's own cancellation error (hermesClient.closeAllPending,
-// "prime-agent process exited") against runCtx's Canceled/DeadlineExceeded
-// error inside hermesClient.request's select — both are non-nil, so either
-// can win depending on which the Go scheduler observes ready first. This is
-// most reliably reproduced under heavy scheduler contention (e.g. the full
-// package test suite running many concurrent subprocess-based tests), but is
-// not scenario-specific: it is a narrow, pre-existing race in the shared ACP
-// request/response plumbing (server/pkg/agent/hermes.go), not something
-// introduced or fixed here — out of scope for this change. Every scenario
-// therefore accepts "failed" as an alternate outcome; what actually matters,
-// and what every scenario still asserts, is that Execute never hangs and the
-// whole process group is reaped.
+// The scenarios below assert an exact status. They previously also accepted
+// "failed", on the theory that hermesClient.request's select races the RPC's
+// own error (closeAllPending, "prime-agent process exited") against runCtx's
+// Canceled/DeadlineExceeded, so either could win.
+//
+// That race is real for the error hermesClient.request RETURNS, but it cannot
+// change the status these scenarios observe: Execute classifies session/new
+// and session/prompt failures on runCtx.Err(), not on the returned error, and
+// context.CancelFunc sets Err() before it unblocks Done(). Once the test has
+// cancelled, runCtx.Err() is deterministic no matter which error won.
+//
+// The one path that really did produce "failed" was initialize, which set the
+// status unconditionally; that is fixed, and covered by
+// runPrimeHandshakeInterruptTest. Accepting "failed" everywhere had been
+// masking it, so these now pin the exact status — Execute not hanging and the
+// process group being reaped are still asserted, but they are no longer the
+// only thing asserted.
 
 // TestPrimeCancellationTerminatesProcessGroupGraceful verifies that
 // cancelling a run terminates a SIGTERM-respecting prime-agent and its whole
@@ -301,7 +310,7 @@ exit 0
 func TestPrimeCancellationTerminatesProcessGroupGraceful(t *testing.T) {
 	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
 	t.Cleanup(func() { primeGracefulExitGraceNanos.Store(0) })
-	runPrimeCancellationTest(t, primeCancelFakeScript(false), nil, "aborted", "failed")
+	runPrimeCancellationTest(t, primeCancelFakeScript(false), nil, "aborted")
 }
 
 // TestPrimeCancellationSkipsSignalWhenPrimeExitsOnEOF pins the graceful-exit
@@ -373,7 +382,7 @@ func TestPrimeCancellationStillKillsGroupWhenLeaderExitsOnEOF(t *testing.T) {
 		primeGracefulExitGraceNanos.Store(0)
 		primeTerminateGraceNanos.Store(0)
 	})
-	runPrimeCancellationTest(t, primeLeaderExitsOnEOFFakeScript(), nil, "aborted", "failed")
+	runPrimeCancellationTest(t, primeLeaderExitsOnEOFFakeScript(), nil, "aborted")
 }
 
 // TestPrimeCancellationEscalatesToSIGKILL verifies the worst case: prime-agent
@@ -387,7 +396,7 @@ func TestPrimeCancellationEscalatesToSIGKILL(t *testing.T) {
 		primeGracefulExitGraceNanos.Store(0)
 		primeTerminateGraceNanos.Store(0)
 	})
-	runPrimeCancellationTest(t, primeCancelFakeScript(true), nil, "aborted", "failed")
+	runPrimeCancellationTest(t, primeCancelFakeScript(true), nil, "aborted")
 }
 
 // TestPrimeCancellationEscalatesWhenDescendantIgnoresTERM is the mixed-signal
@@ -402,7 +411,7 @@ func TestPrimeCancellationEscalatesWhenDescendantIgnoresTERM(t *testing.T) {
 		primeGracefulExitGraceNanos.Store(0)
 		primeTerminateGraceNanos.Store(0)
 	})
-	runPrimeCancellationTest(t, primeMixedSignalFakeScript(), nil, "aborted", "failed")
+	runPrimeCancellationTest(t, primeMixedSignalFakeScript(), nil, "aborted")
 }
 
 // TestPrimeTimeoutTerminatesProcessGroupWithDescendant proves the timeout
@@ -417,7 +426,7 @@ func TestPrimeTimeoutTerminatesProcessGroupWithDescendant(t *testing.T) {
 		primeGracefulExitGraceNanos.Store(0)
 		primeTerminateGraceNanos.Store(0)
 	})
-	runPrimeCancellationTest(t, primeCancelFakeScript(false), &ExecOptions{Timeout: 500 * time.Millisecond}, "timeout", "failed")
+	runPrimeCancellationTest(t, primeCancelFakeScript(false), &ExecOptions{Timeout: 500 * time.Millisecond}, "timeout")
 }
 
 // runPrimeCancellationTest drives a fake prime-agent through initialize +
