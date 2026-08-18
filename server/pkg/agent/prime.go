@@ -37,53 +37,78 @@ type primeGlobalSettings struct {
 	RlmMaxDepth any `json:"rlmMaxDepth"`
 }
 
-// primeAgentDir resolves the directory Prime Agent reads its global settings
-// from, mirroring getAgentDir (packages/coding-agent/src/config.ts):
-// PRIME_AGENT_CODING_AGENT_DIR wins with `~` expanded, otherwise
-// ~/.prime/agent. env is the backend's configured environment, which is what
-// the child process would actually see; the daemon's own environment is the
-// fallback, matching how local_skills.go resolves the same directory.
+// jsMaxSafeInteger is Number.MAX_SAFE_INTEGER. Prime gates its global
+// rlmMaxDepth on Number.isSafeInteger, so a larger value is discarded there and
+// must be discarded here too.
+const jsMaxSafeInteger = 9007199254740991
+
+// primeAgentDirFor resolves the directory the SPAWNED prime-agent would read
+// its global settings from, mirroring getAgentDir
+// (packages/coding-agent/src/config.ts).
 //
-// Returns "" when no home directory can be determined, which the caller reads
-// as "no global settings to inspect".
-func primeAgentDir(env map[string]string) string {
-	dir := strings.TrimSpace(env["PRIME_AGENT_CODING_AGENT_DIR"])
-	if dir == "" {
-		dir = strings.TrimSpace(os.Getenv("PRIME_AGENT_CODING_AGENT_DIR"))
+// It takes the child's final environment and working directory rather than the
+// daemon's, because the two can disagree in ways that would make this gate
+// inspect a different file from the one the child actually reads:
+//
+//   - env is the merged slice handed to the process, so a configured value
+//     shadows the inherited one exactly as exec does — including an explicitly
+//     empty value, which is not the same as an absent one.
+//   - Prime tests the raw string (`if (envDir)`), so it is never trimmed: ""
+//     is falsy and falls back to ~/.prime/agent, while " " is truthy and names
+//     a relative directory.
+//   - a relative value resolves against the child's working directory, which
+//     is opts.Cwd, not wherever the daemon happens to be running.
+//
+// Returns "" when no home directory can be determined and none was configured,
+// which the caller reads as "no global settings to inspect".
+func primeAgentDirFor(env []string, cwd string) string {
+	dir := ""
+	for _, entry := range env {
+		if key, value, ok := strings.Cut(entry, "="); ok && key == "PRIME_AGENT_CODING_AGENT_DIR" {
+			// Last occurrence wins, matching how exec resolves duplicates.
+			dir = value
+		}
 	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = ""
 	}
-	switch {
-	case dir == "":
+	if dir == "" {
 		if home == "" {
 			return ""
 		}
 		return filepath.Join(home, ".prime", "agent")
+	}
+
+	switch {
 	case dir == "~":
 		return home
 	case strings.HasPrefix(dir, "~/"):
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, dir[2:])
-	default:
-		return dir
+		dir = filepath.Join(home, dir[2:])
 	}
+	if !filepath.IsAbs(dir) && cwd != "" {
+		return filepath.Join(cwd, dir)
+	}
+	return dir
 }
 
-// primeGlobalRlmMaxDepth reports the rlmMaxDepth Prime would read from its
-// global settings.json, and whether that value would actually take effect.
+// primeGlobalRlmMaxDepth reports the rlmMaxDepth the spawned prime-agent would
+// read from its global settings.json, and whether that value would actually
+// take effect.
 //
 // The second return value mirrors Prime's own gate — `typeof value ===
 // "number" && Number.isSafeInteger(value) && value >= 0` (isNonNegativeInteger,
 // agent-session.ts). A missing file, unreadable file, malformed JSON, absent
-// key, non-numeric value, fractional value or negative value all make Prime
-// fall through to RLM_MAX_DEPTH, so they report false here too: this must not
-// refuse a run Prime itself would have run with subagents disabled.
-func primeGlobalRlmMaxDepth(env map[string]string) (int64, bool) {
-	dir := primeAgentDir(env)
+// key, non-numeric value, fractional value, negative value or one beyond
+// Number.MAX_SAFE_INTEGER all make Prime fall through to RLM_MAX_DEPTH, so they
+// report false here too: this must not refuse a run Prime itself would have run
+// with subagents disabled.
+func primeGlobalRlmMaxDepth(env []string, cwd string) (int64, bool) {
+	dir := primeAgentDirFor(env, cwd)
 	if dir == "" {
 		return 0, false
 	}
@@ -100,7 +125,7 @@ func primeGlobalRlmMaxDepth(env map[string]string) (int64, bool) {
 		return 0, false
 	}
 	depth := int64(value)
-	if float64(depth) != value || depth < 0 {
+	if float64(depth) != value || depth < 0 || depth > jsMaxSafeInteger {
 		return 0, false
 	}
 	return depth, true
@@ -217,12 +242,16 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// the host's Prime configuration, and it stays true after the CLI is
 	// installed, so reporting it first is more useful than a missing-binary
 	// error that hides it.
-	if depth, ok := primeGlobalRlmMaxDepth(b.cfg.Env); ok && depth > 0 {
+	// childEnv is what the process will actually receive, so the gate below
+	// inspects the same settings.json the child would read rather than an
+	// approximation built from b.cfg.Env alone.
+	childEnv := append(buildEnv(b.cfg.Env), "RLM_MAX_DEPTH=0")
+	if depth, ok := primeGlobalRlmMaxDepth(childEnv, opts.Cwd); ok && depth > 0 {
 		return nil, fmt.Errorf(
 			"prime-agent has a global rlmMaxDepth of %d in %s, which re-enables RLM subagents and outranks the RLM_MAX_DEPTH=0 Multica sets; "+
 				"subagents can outlive the task and Multica would report it complete while they are still running. "+
 				"Set it to 0 (`/rlm-max-depth 0 --global` in prime-agent) or remove the key to run Prime tasks from Multica",
-			depth, filepath.Join(primeAgentDir(b.cfg.Env), "settings.json"))
+			depth, filepath.Join(primeAgentDirFor(childEnv, opts.Cwd), "settings.json"))
 	}
 
 	execPath := b.cfg.ExecutablePath
@@ -341,7 +370,7 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// precedence chain above), and
 	// https://github.com/PrimeIntellect-ai/prime-agent/blob/v0.7.1/packages/coding-agent/src/core/system-prompt.ts
 	// (the prompt gating).
-	cmd.Env = append(buildEnv(b.cfg.Env), "RLM_MAX_DEPTH=0")
+	cmd.Env = childEnv
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

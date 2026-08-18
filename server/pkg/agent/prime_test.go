@@ -780,6 +780,11 @@ func TestPrimeFailsClosedOnGlobalRlmMaxDepth(t *testing.T) {
 		{"fractional is not a safe integer", `{"rlmMaxDepth": 1.5}`, false},
 		{"string is not a number", `{"rlmMaxDepth": "2"}`, false},
 		{"malformed settings are not an override", `{`, false},
+		// Number.MAX_SAFE_INTEGER is the last value Prime honours; one past it
+		// fails isNonNegativeInteger there and falls back to RLM_MAX_DEPTH=0,
+		// so refusing it here would reject a host Prime runs safely.
+		{"max safe integer is still an override", `{"rlmMaxDepth": 9007199254740991}`, true},
+		{"one past max safe integer is discarded", `{"rlmMaxDepth": 9007199254740992}`, false},
 	}
 
 	for _, tc := range cases {
@@ -817,5 +822,99 @@ func TestPrimeFailsClosedOnGlobalRlmMaxDepth(t *testing.T) {
 				t.Fatalf("expected the run to reach the executable lookup, got: %v", err)
 			}
 		})
+	}
+}
+
+// TestPrimeAgentDirForMatchesTheChildProcess pins the resolver against
+// getAgentDir's actual semantics, because the fail-closed gate is only as good
+// as its agreement with the file the child really reads.
+//
+// Three ways they can diverge, each covered below. Prime tests the raw string
+// with `if (envDir)`, so it never trims and treats "" and " " differently. The
+// merged environment lets a configured value shadow an inherited one, empty
+// value included. And a relative value resolves against the child's working
+// directory — opts.Cwd — not the daemon's.
+func TestPrimeAgentDirForMatchesTheChildProcess(t *testing.T) {
+	t.Parallel()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory on this host: %v", err)
+	}
+	defaultDir := filepath.Join(home, ".prime", "agent")
+
+	cases := []struct {
+		name string
+		env  []string
+		cwd  string
+		want string
+	}{
+		{"unset falls back to the default", []string{"PATH=/usr/bin"}, "/work", defaultDir},
+		{"absolute value is used as-is", []string{"PRIME_AGENT_CODING_AGENT_DIR=/opt/prime"}, "/work", "/opt/prime"},
+		{
+			"explicitly empty is falsy for Prime, not absent",
+			[]string{"PRIME_AGENT_CODING_AGENT_DIR=/inherited", "PRIME_AGENT_CODING_AGENT_DIR="},
+			"/work", defaultDir,
+		},
+		{
+			"whitespace is truthy for Prime and is a relative path",
+			[]string{"PRIME_AGENT_CODING_AGENT_DIR= "},
+			"/work", filepath.Join("/work", " "),
+		},
+		{
+			"relative value resolves against the child's cwd",
+			[]string{"PRIME_AGENT_CODING_AGENT_DIR=prime-config"},
+			"/work", filepath.Join("/work", "prime-config"),
+		},
+		{
+			"a later entry shadows an earlier one, as exec does",
+			[]string{"PRIME_AGENT_CODING_AGENT_DIR=/first", "PRIME_AGENT_CODING_AGENT_DIR=/second"},
+			"/work", "/second",
+		},
+		{"tilde expands to the home directory", []string{"PRIME_AGENT_CODING_AGENT_DIR=~/p"}, "/work", filepath.Join(home, "p")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := primeAgentDirFor(tc.env, tc.cwd); got != tc.want {
+				t.Fatalf("primeAgentDirFor = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPrimeFailsClosedOnRelativeGlobalAgentDir is the concrete escape the
+// resolver test guards against, driven through Execute: a relative
+// PRIME_AGENT_CODING_AGENT_DIR points at a settings.json inside the task
+// workdir, which a gate resolving against the daemon's own directory would
+// never open — leaving the fire-and-forget completion problem live.
+func TestPrimeFailsClosedOnRelativeGlobalAgentDir(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	agentDir := filepath.Join(cwd, "prime-config")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(`{"rlmMaxDepth": 1}`), 0o600); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+		Env:            map[string]string{"PRIME_AGENT_CODING_AGENT_DIR": "prime-config"},
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: cwd})
+	if err == nil || !strings.Contains(err.Error(), "rlmMaxDepth") {
+		t.Fatalf("a relative agent dir under the task workdir must still be seen by the gate, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), agentDir) {
+		t.Fatalf("the refusal must name the resolved settings file: %v", err)
 	}
 }
