@@ -258,6 +258,11 @@ var probeAgentCLIs = func() map[string]AgentEntry {
 	if e, ok := probe("MULTICA_QWENPAW_PATH", "qwenpaw", ""); ok {
 		agents["qwenpaw"] = e
 	}
+	// MiniMax Code (`mcode`) exposes an ACP v1 server through `mcode acp`.
+	// Model selection is owned by the MCode runtime, so there is no model env.
+	if e, ok := probe("MULTICA_MCODE_PATH", "mcode", ""); ok {
+		agents["mcode"] = e
+	}
 	// Prime Agent (`prime-agent`), driven over ACP via `prime-agent --mode
 	// acp`. It takes no model env var: the underlying model is fixed
 	// process-globally at Prime's own startup and never read from ACP

@@ -20,4 +20,5 @@ qoderclicn
 reasonix
 traecli
 qwenpaw
+mcode
 prime-agent

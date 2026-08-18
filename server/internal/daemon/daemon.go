@@ -5570,6 +5570,7 @@ var runtimeDisplayNameOverrides = map[string]string{
 	"qoderclicn": "Qoder CN",
 	"qwen":       "Qwen Code",
 	"qwenpaw":    "QwenPaw",
+	"mcode":      "MiniMax Code",
 	"prime":      "Prime Agent",
 }
 
@@ -5608,7 +5609,8 @@ func providerDisplayName(name string) string {
 // probed each one over its real launch path with a canary in the context file
 // and no inline delivery: claude 2.1.220 (CLAUDE.md), codex 0.144.6 driving the
 // app-server (AGENTS.md), opencode 1.17.7 (AGENTS.md), pi 0.67.2 (AGENTS.md),
-// hermes 0.18.2 over ACP (AGENTS.md). kiro was confirmed earlier by a kiro-cli
+// hermes 0.18.2 over ACP (AGENTS.md). MCode 0.1.2 also loads AGENTS.md by its
+// native runtime contract. kiro was confirmed earlier by a kiro-cli
 // 2.13.0 ACP smoke — see the call site. prime (Prime Agent v0.7.1) is confirmed
 // both by source (packages/coding-agent/src/core/resource-loader.ts's
 // loadContextFileFromDir checks AGENTS.md/CLAUDE.md in the session cwd

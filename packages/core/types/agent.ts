@@ -128,6 +128,7 @@ export const RUNTIME_PROFILE_PROTOCOL_FAMILIES = [
   "grok",
   "qwen",
   "qwenpaw",
+  "mcode",
   "prime",
 ] as const;
 
@@ -185,6 +186,7 @@ export type TaskFailureReason =
   | "timeout"
   | "codex_semantic_inactivity"
   | "runtime_offline"
+  | "runtime_reconnect_timeout"
   | "runtime_recovery"
   | "manual";
 

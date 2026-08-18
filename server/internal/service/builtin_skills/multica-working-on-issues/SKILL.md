@@ -188,10 +188,15 @@ on it. These are the contracts, not advice:
 - **`backlog`** parks an agent-assigned issue: the assignee is set but no task
   fires. Moving `backlog → todo` (or any non-done/non-cancelled status) enqueues
   the assigned agent then.
-- **`in_progress` / `in_review` on assignment runs** are agent-managed CLI
-  mutations, not `StartTask` / `CompleteTask` side effects. The assignment
-  runtime brief asks ordinary agents for `todo`/`backlog` → `in_progress` then
-  `in_review` when they have delivered. Squad leaders share the opening
+- **`in_progress` / `in_review`** are agent-managed CLI mutations, not
+  `StartTask` / `CompleteTask` side effects. The runtime brief asks ordinary
+  agents for `todo`/`backlog` → `in_progress` then `in_review` when they have
+  delivered. Ownership turns open that arc unconditionally; reply turns own the
+  same arc, but only when the issue is assigned to you AND the turn does
+  substantive work — a question, a discussion, or an acknowledgement never
+  moves the status, and neither does a turn on an issue not assigned to you
+  (someone else's, or unassigned — you were pulled in by an @mention either
+  way). Squad leaders share the opening
   `in_progress` step on the first assignment turn, keep the parent there while
   members work, and only move to `in_review` when a later re-trigger confirms
   the overall goal is met.

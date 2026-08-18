@@ -243,6 +243,10 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 		// makes model selection session-scoped, restore a discovery helper
 		// here modelled on discoverTraecliModels.
 		return Catalog{Models: []Model{}}, nil
+	case "mcode":
+		// MCode's ACP server does not expose session-scoped model selection or
+		// a model catalog. The configured MCode runtime owns the model choice.
+		return Catalog{Models: []Model{}}, nil
 	case "prime":
 		// Prime Agent's model is fixed process-globally at CLI startup and
 		// never read from session/new or session/prompt over ACP, so there is
@@ -277,13 +281,15 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 // dropdown plus a silently-ignored manual-entry field.
 func ModelSelectionSupported(providerType string) bool {
 	switch providerType {
-	case "qwenpaw":
+	case "qwenpaw", "mcode":
 		// QwenPaw's `session/set_model` persists to agent.json at the agent
 		// scope, not the session scope. Calling it would mutate the user's
 		// shared, persistent agent config. Model override is therefore
 		// unsupported — the runtime uses whatever model is configured in
 		// the agent profile. If QwenPaw makes model selection session-scoped
-		// upstream, this can be reverted to `true`.
+		// upstream, this can be reverted to `true`. MCode similarly exposes no
+		// model option through ACP, so its runtime configuration remains the
+		// source of truth.
 		return false
 	case "prime":
 		// Prime Agent's model is a process-global choice fixed at CLI startup

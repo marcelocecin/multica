@@ -1,5 +1,6 @@
 "use client";
 
+import { statusCategoryOfKey } from "@multica/core/issues";
 import { useMemo, type ReactNode } from "react";
 import {
   CalendarDays,
@@ -349,7 +350,7 @@ function useFilterChips(
       ),
       value:
         onlyStatus !== undefined && deltaStatus.length === 1
-          ? t(($) => $.status[onlyStatus])
+          ? t(($) => $.status[statusCategoryOfKey(onlyStatus)])
           : t(($) => $.filters.chip_status_count, { count: deltaStatus.length }),
       onRemove: () => clearDimension("status"),
     });

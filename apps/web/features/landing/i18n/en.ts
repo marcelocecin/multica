@@ -101,7 +101,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       label: "RUNTIMES",
       title: "One dashboard for all your compute",
       description:
-        "Local daemons and cloud runtimes, managed from a single panel. Real-time monitoring of online/offline status, usage charts, and activity heatmaps. Auto-detects 22 supported coding tools on your machine.",
+        "Local daemons and cloud runtimes, managed from a single panel. Real-time monitoring of online/offline status, usage charts, and activity heatmaps. Auto-detects 23 supported coding tools on your machine.",
       cards: [
         {
           title: "Unified runtime panel",
@@ -293,6 +293,27 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       fixes: "Bug Fixes",
     },
     entries: [
+      {
+        version: "0.4.29",
+        date: "2026-08-18",
+        title: "MiniMax Code, cleaner run transcripts, and Hermes agent fixes",
+        changes: [],
+        features: [
+          "You can now run agents with MiniMax Code.",
+          "Press Cmd/Ctrl+, to open Settings in a new desktop tab.",
+        ],
+        improvements: [
+          "Hermes agent runs now show tools while they are working.",
+          "Agent transcripts are easier to scan without repeated names.",
+        ],
+        fixes: [
+          "Tasks keep running through brief runtime connection drops.",
+          "Daily and weekly cost charts now include cache-read costs.",
+          "Files and audio sent directly in Feishu now reach your agent.",
+          "Failed delegated work now returns to the coordinating agent.",
+          "Downloads now show the newest complete release.",
+        ],
+      },
       {
         version: "0.4.28",
         date: "2026-08-17",
