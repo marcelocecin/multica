@@ -745,3 +745,77 @@ done
 		t.Fatalf("expected 'no session ID' error, got %q", result.Error)
 	}
 }
+
+// TestPrimeFailsClosedOnGlobalRlmMaxDepth pins the boundary RLM_MAX_DEPTH=0
+// cannot defend on its own.
+//
+// Prime resolves rlmMaxDepth from its persisted global settings.json before it
+// looks at RLM_MAX_DEPTH, so an operator who ran `/rlm-max-depth <n> --global`
+// silently re-enables fire-and-forget subagents for Multica runs too. Those
+// children outlive session/prompt, so Multica would report the task complete
+// and tear the session down while they are still working. Multica cannot
+// outrank the setting — isolating PRIME_AGENT_CODING_AGENT_DIR would take
+// auth.json with it, and ACP has no per-session override — so the run is
+// refused instead.
+//
+// The cases that must NOT refuse are the point of the table: each is a value
+// Prime itself discards (isNonNegativeInteger), falling through to the env var
+// that already disables subagents. Refusing those would break working setups.
+// ExecutablePath is a path that does not exist, so a run that gets past the
+// gate fails at the executable lookup and nothing is ever spawned.
+func TestPrimeFailsClosedOnGlobalRlmMaxDepth(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		settings  string // "" writes no settings.json at all
+		wantRefus bool
+	}{
+		{"non-zero global override refuses the run", `{"rlmMaxDepth": 2}`, true},
+		{"depth 1 is still a subagent", `{"rlmMaxDepth": 1}`, true},
+		{"zero is the state Multica wants", `{"rlmMaxDepth": 0}`, false},
+		{"absent key falls through to the env var", `{"defaultModel": "x"}`, false},
+		{"no settings file at all", "", false},
+		{"negative is discarded by Prime", `{"rlmMaxDepth": -1}`, false},
+		{"fractional is not a safe integer", `{"rlmMaxDepth": 1.5}`, false},
+		{"string is not a number", `{"rlmMaxDepth": "2"}`, false},
+		{"malformed settings are not an override", `{`, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			agentDir := t.TempDir()
+			if tc.settings != "" {
+				if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(tc.settings), 0o600); err != nil {
+					t.Fatalf("write settings.json: %v", err)
+				}
+			}
+
+			backend, err := New("prime", Config{
+				ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+				Logger:         testLogger(),
+				Env:            map[string]string{"PRIME_AGENT_CODING_AGENT_DIR": agentDir},
+			})
+			if err != nil {
+				t.Fatalf("new prime backend: %v", err)
+			}
+
+			_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: t.TempDir()})
+			if err == nil {
+				t.Fatal("Execute returned no error; the missing executable should always stop it")
+			}
+			refused := strings.Contains(err.Error(), "rlmMaxDepth")
+			if refused != tc.wantRefus {
+				t.Fatalf("refused=%v want %v; error was: %v", refused, tc.wantRefus, err)
+			}
+			if refused && !strings.Contains(err.Error(), agentDir) {
+				t.Fatalf("the refusal must name the settings file the operator has to edit: %v", err)
+			}
+			if !refused && !strings.Contains(err.Error(), "executable not found") {
+				t.Fatalf("expected the run to reach the executable lookup, got: %v", err)
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,85 @@ import (
 var primeBlockedArgs = map[string]blockedArgMode{
 	"--mode": blockedWithValue,
 	"--cwd":  blockedWithValue,
+}
+
+// primeGlobalSettings is the slice of Prime Agent's global settings.json this
+// backend has to understand. Everything else in that file is Prime's business.
+type primeGlobalSettings struct {
+	// any, not a numeric type: Prime's gate starts at `typeof value ===
+	// "number"`, so a quoted "2" has to be rejected rather than coerced.
+	// encoding/json decodes every JSON number into float64, which is also
+	// what the JavaScript side is comparing.
+	RlmMaxDepth any `json:"rlmMaxDepth"`
+}
+
+// primeAgentDir resolves the directory Prime Agent reads its global settings
+// from, mirroring getAgentDir (packages/coding-agent/src/config.ts):
+// PRIME_AGENT_CODING_AGENT_DIR wins with `~` expanded, otherwise
+// ~/.prime/agent. env is the backend's configured environment, which is what
+// the child process would actually see; the daemon's own environment is the
+// fallback, matching how local_skills.go resolves the same directory.
+//
+// Returns "" when no home directory can be determined, which the caller reads
+// as "no global settings to inspect".
+func primeAgentDir(env map[string]string) string {
+	dir := strings.TrimSpace(env["PRIME_AGENT_CODING_AGENT_DIR"])
+	if dir == "" {
+		dir = strings.TrimSpace(os.Getenv("PRIME_AGENT_CODING_AGENT_DIR"))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	switch {
+	case dir == "":
+		if home == "" {
+			return ""
+		}
+		return filepath.Join(home, ".prime", "agent")
+	case dir == "~":
+		return home
+	case strings.HasPrefix(dir, "~/"):
+		if home == "" {
+			return ""
+		}
+		return filepath.Join(home, dir[2:])
+	default:
+		return dir
+	}
+}
+
+// primeGlobalRlmMaxDepth reports the rlmMaxDepth Prime would read from its
+// global settings.json, and whether that value would actually take effect.
+//
+// The second return value mirrors Prime's own gate — `typeof value ===
+// "number" && Number.isSafeInteger(value) && value >= 0` (isNonNegativeInteger,
+// agent-session.ts). A missing file, unreadable file, malformed JSON, absent
+// key, non-numeric value, fractional value or negative value all make Prime
+// fall through to RLM_MAX_DEPTH, so they report false here too: this must not
+// refuse a run Prime itself would have run with subagents disabled.
+func primeGlobalRlmMaxDepth(env map[string]string) (int64, bool) {
+	dir := primeAgentDir(env)
+	if dir == "" {
+		return 0, false
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		return 0, false
+	}
+	var settings primeGlobalSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return 0, false
+	}
+	value, ok := settings.RlmMaxDepth.(float64)
+	if !ok {
+		return 0, false
+	}
+	depth := int64(value)
+	if float64(depth) != value || depth < 0 {
+		return 0, false
+	}
+	return depth, true
 }
 
 // primeGracefulExitGraceNanos optionally overrides, in nanoseconds, how long a
@@ -119,6 +199,32 @@ type primeBackend struct {
 }
 
 func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOptions) (*Session, error) {
+	// Fail closed on a global rlmMaxDepth this backend cannot override.
+	//
+	// RLM_MAX_DEPTH=0 below disables Prime's fire-and-forget subagents on the
+	// default path, but it is not the top of Prime's precedence chain: a
+	// persisted global rlmMaxDepth outranks it (see the RLM_MAX_DEPTH comment
+	// further down for the full chain). With subagents re-enabled, a child can
+	// keep running after session/prompt returns, and Multica reports the task
+	// complete and tears the owned session down while that child is still
+	// working — losing or truncating it. Multica has no lever to prevent that:
+	// isolating PRIME_AGENT_CODING_AGENT_DIR would take auth.json with it, and
+	// ACP exposes no per-session override. Refusing the run is the only
+	// honest outcome, so the operator gets a fixable error instead of a task
+	// that silently reports the wrong thing.
+	//
+	// Checked before the executable lookup deliberately: this is a property of
+	// the host's Prime configuration, and it stays true after the CLI is
+	// installed, so reporting it first is more useful than a missing-binary
+	// error that hides it.
+	if depth, ok := primeGlobalRlmMaxDepth(b.cfg.Env); ok && depth > 0 {
+		return nil, fmt.Errorf(
+			"prime-agent has a global rlmMaxDepth of %d in %s, which re-enables RLM subagents and outranks the RLM_MAX_DEPTH=0 Multica sets; "+
+				"subagents can outlive the task and Multica would report it complete while they are still running. "+
+				"Set it to 0 (`/rlm-max-depth 0 --global` in prime-agent) or remove the key to run Prime tasks from Multica",
+			depth, filepath.Join(primeAgentDir(b.cfg.Env), "settings.json"))
+	}
+
 	execPath := b.cfg.ExecutablePath
 	if execPath == "" {
 		execPath = "prime-agent"
@@ -214,10 +320,15 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// configuration by the operating user and is not reachable through the
 	// ACP wire protocol itself — the PrimeAgentSessionMeta.rlmMaxDepth/
 	// rlmDepth fields declared in acp-meta.ts are outbound telemetry only
-	// (never read as client input anywhere under modes/acp/) — so it is
-	// tracked as a P2 follow-up, not a Phase 1 regression. On a host with no
-	// such pre-existing global override — the default, and the case this
-	// provider's tests exercise — RLM_MAX_DEPTH=0 is effective.
+	// (never read as client input anywhere under modes/acp/).
+	//
+	// Since Multica cannot win that precedence, Execute refuses to launch at
+	// all when an effective non-zero global override is present, rather than
+	// running a task whose completion it would then misreport (see the
+	// fail-closed check at the top of Execute and
+	// TestPrimeFailsClosedOnGlobalRlmMaxDepth). On a host with no such
+	// override — the default — RLM_MAX_DEPTH=0 is effective and the run
+	// proceeds normally.
 	//
 	// This also removes the subagent-guidance section from Prime's own system
 	// prompt (allowRecursion is threaded into buildRlmPrompt), so the model
