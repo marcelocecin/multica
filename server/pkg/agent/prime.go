@@ -359,8 +359,20 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			"clientCapabilities": map[string]any{},
 		})
 		if err != nil {
-			finalStatus = "failed"
-			finalError = fmt.Sprintf("prime-agent initialize failed: %v", err)
+			// Classify off runCtx, not off err: the handshake can be cancelled
+			// or time out like any other RPC, and reporting that as "failed"
+			// would surface a user-cancelled task as a provider fault. Mirrors
+			// the session/new and session/prompt paths below.
+			if runCtx.Err() == context.DeadlineExceeded {
+				finalStatus = "timeout"
+				finalError = fmt.Sprintf("prime-agent timed out during initialize: %v", timeout)
+			} else if runCtx.Err() == context.Canceled {
+				finalStatus = "aborted"
+				finalError = fmt.Sprintf("prime-agent aborted: %v", err)
+			} else {
+				finalStatus = "failed"
+				finalError = fmt.Sprintf("prime-agent initialize failed: %v", err)
+			}
 			resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds()}
 			return
 		}

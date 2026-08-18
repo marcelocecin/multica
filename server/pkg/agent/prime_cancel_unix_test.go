@@ -122,6 +122,106 @@ exit 0
 `
 }
 
+// primeHangingHandshakeFakeScript returns a fake `prime-agent` that receives
+// the initialize request, announces it, and then never answers — pinning the
+// run inside the ACP handshake so a test can cancel or time out there
+// specifically, rather than racing whichever RPC happens to be in flight.
+func primeHangingHandshakeFakeScript() string {
+	return "#!/bin/sh\n" +
+		`while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      # Announce, then never respond: the run stays in the handshake.
+      printf 'initialize-received\n' >> "$PRIME_SIGNAL_FILE"
+      ;;
+  esac
+done
+`
+}
+
+// runPrimeHandshakeInterruptTest drives a fake prime-agent that hangs during
+// initialize, waits until the handshake is provably in flight, then either
+// cancels the context or lets the supplied timeout fire, and asserts the
+// reported status.
+//
+// Unlike runPrimeCancellationTest this synchronises on a marker the fake writes
+// from inside the initialize branch, so the interruption cannot land before the
+// handshake has started.
+func runPrimeHandshakeInterruptTest(t *testing.T, timeout time.Duration, want string) {
+	t.Helper()
+
+	primeGracefulExitGraceNanos.Store(int64(300 * time.Millisecond))
+	primeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
+	t.Cleanup(func() {
+		primeGracefulExitGraceNanos.Store(0)
+		primeTerminateGraceNanos.Store(0)
+	})
+
+	tempDir := t.TempDir()
+	signalFile := filepath.Join(tempDir, "signals")
+	fakePath := filepath.Join(tempDir, "prime-agent")
+	writeTestExecutable(t, fakePath, []byte(primeHangingHandshakeFakeScript()))
+
+	backend, err := New("prime", Config{
+		ExecutablePath: fakePath,
+		Logger:         slog.Default(),
+		Env:            map[string]string{"PRIME_SIGNAL_FILE": signalFile},
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	opts := ExecOptions{Cwd: tempDir}
+	if timeout > 0 {
+		opts.Timeout = timeout
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+	}
+
+	session, err := backend.Execute(ctx, "prompt-ignored", opts)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	go func() {
+		for range session.Messages {
+		}
+	}()
+
+	// The handshake is provably in flight before the interruption lands.
+	waitForFileContaining(t, signalFile, "initialize-received")
+	if cancel != nil {
+		cancel()
+	}
+
+	select {
+	case res := <-session.Result:
+		if res.Status != want {
+			t.Errorf("status = %q, want %q — a run interrupted during the ACP handshake "+
+				"must not be reported as a provider failure (error: %q)", res.Status, want, res.Error)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute did not return after the handshake was interrupted")
+	}
+}
+
+// TestPrimeCancelDuringHandshakeReportsAborted: cancelling while initialize is
+// still in flight is a user abort, not a provider fault. The initialize error
+// path used to hardcode "failed", so a task the user cancelled during startup
+// surfaced as a Prime defect.
+func TestPrimeCancelDuringHandshakeReportsAborted(t *testing.T) {
+	runPrimeHandshakeInterruptTest(t, 0, "aborted")
+}
+
+// TestPrimeTimeoutDuringHandshakeReportsTimeout is the deadline half of the
+// same gap: a handshake that never completes within the run's timeout is a
+// timeout, and is retried/reported differently from a failure.
+func TestPrimeTimeoutDuringHandshakeReportsTimeout(t *testing.T) {
+	runPrimeHandshakeInterruptTest(t, 700*time.Millisecond, "timeout")
+}
+
 // waitForFileContaining polls path until it contains want, failing the test if
 // that never happens before the deadline.
 func waitForFileContaining(t *testing.T, path, want string) {
