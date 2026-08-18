@@ -1,5 +1,6 @@
 -- Revert Prime Agent (`prime`) from the built-in runtime profile protocol
--- whitelist, restoring migration 313's family set exactly.
+-- whitelist, restoring migration 342's family set exactly — the state this
+-- migration was applied on top of, which already includes `mcode`.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
