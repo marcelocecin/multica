@@ -163,6 +163,7 @@ var launchPrefixBlockedArgs = map[string]map[string]blockedArgMode{
 	"opencode":    opencodeBlockedArgs,
 	"openclaw":    openclawBlockedArgs,
 	"pi":          piBlockedArgs,
+	"prime":       primeBlockedArgs,
 	"qoder":       qoderBlockedArgs,
 	"qoderclicn":  qoderBlockedArgs,
 	"qwen":        qwenBlockedArgs,
