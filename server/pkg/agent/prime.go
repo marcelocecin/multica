@@ -51,6 +51,31 @@ func primeTerminateGrace() time.Duration {
 	return 5 * time.Second
 }
 
+// primeTeardownGraceNanos optionally overrides, in nanoseconds, how long the
+// success path waits for the stdout/stderr goroutines to drain before forcing
+// the teardown. Set via atomic store in tests; zero keeps the default, which
+// matches codexGracefulShutdownTimeout.
+var primeTeardownGraceNanos atomic.Int64
+
+func primeTeardownGrace() time.Duration {
+	if n := primeTeardownGraceNanos.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	return 10 * time.Second
+}
+
+// waitClosedWithin reports whether done was closed before d elapsed.
+func waitClosedWithin(done <-chan struct{}, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 // primeBackend implements Backend by spawning `prime-agent --mode acp` and
 // communicating via the ACP (Agent Client Protocol) JSON-RPC 2.0 over
 // stdin/stdout.
@@ -485,8 +510,50 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// cancellation goroutine has killed the group.
 		closeStdin()
 
-		<-readerDone
-		<-stderrDone
+		// Draining is bounded, including on this success path.
+		//
+		// These receives sit BEFORE the deferred cmd.Wait(), so cmd.WaitDelay
+		// cannot backstop them — it only runs once Wait is entered. A pipe the
+		// leader closed is not necessarily a pipe at EOF: any descendant that
+		// inherited it holds it open. prime-agent keeps its own stdio
+		// disciplined (the IPython kernel, the fork server and the detached
+		// daemon worker all get fresh pipes or /dev/null), but its
+		// package-manager subprocesses run with stdio ["ignore", 2, 2] under
+		// ACP's stdout takeover, so they do inherit fd 2. An unbounded receive
+		// here parks a run that already finished until the daemon's idle
+		// watchdog force-stops it, turning a successful task into a failed one.
+		//
+		// cancel() is the forcing function rather than a direct pipe close: it
+		// runs the same teardown cancellation uses (stdin EOF, then a group
+		// SIGTERM/SIGKILL, then stdout.Close()), and killing the group is what
+		// actually releases a pipe a descendant is holding. It is idempotent
+		// and cannot disturb finalStatus, which is already decided here.
+		//
+		// Giving up after the second window is safe rather than merely
+		// pragmatic: every value read below is mutex-guarded — output by
+		// outputMu, the sniffer by its own mutex, usage by usageMu — so
+		// continuing while a goroutine is still writing races nothing. The
+		// only cost is trailing output that a wedged descendant was delaying
+		// anyway, and cmd.WaitDelay now becomes reachable in the deferred
+		// cleanup, which is what finally reaps the process.
+		for _, drain := range []struct {
+			name string
+			done <-chan struct{}
+		}{
+			{"stdout", readerDone},
+			{"stderr", stderrDone},
+		} {
+			if waitClosedWithin(drain.done, primeTeardownGrace()) {
+				continue
+			}
+			b.cfg.Logger.Warn("prime-agent pipe still open after stdin EOF; forcing teardown",
+				"pipe", drain.name, "grace", primeTeardownGrace().String())
+			cancel()
+			if !waitClosedWithin(drain.done, primeTeardownGrace()) {
+				b.cfg.Logger.Error("prime-agent pipe never reached EOF; continuing without a full drain",
+					"pipe", drain.name)
+			}
+		}
 
 		outputMu.Lock()
 		finalOutput := output.String()
