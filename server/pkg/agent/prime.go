@@ -64,18 +64,6 @@ func primeTeardownGrace() time.Duration {
 	return 10 * time.Second
 }
 
-// waitClosedWithin reports whether done was closed before d elapsed.
-func waitClosedWithin(done <-chan struct{}, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-done:
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
 // primeBackend implements Backend by spawning `prime-agent --mode acp` and
 // communicating via the ACP (Agent Client Protocol) JSON-RPC 2.0 over
 // stdin/stdout.
@@ -383,6 +371,16 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		defer close(resCh)
 		defer func() {
 			closeStdin()
+			// Cancel before Wait, not after. Defers run in reverse order, so
+			// the `defer cancel()` above is the LAST thing to run — leaving
+			// cmd.Wait() to be entered with runCtx still live. That matters
+			// because cmd.WaitDelay only bounds a child that fails to exit
+			// *after its context is cancelled*; with a live context and a
+			// prime-agent that closed its pipes but has not exited, Wait
+			// blocks and the delay never starts. Cancelling here makes the
+			// backstop reachable on every path, and it is idempotent and
+			// harmless once the process has already exited.
+			cancel()
 			_ = cmd.Wait()
 			close(procDone)
 		}()
@@ -554,22 +552,24 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// only cost is trailing output that a wedged descendant was delaying
 		// anyway, and cmd.WaitDelay now becomes reachable in the deferred
 		// cleanup, which is what finally reaps the process.
-		for _, drain := range []struct {
-			name string
-			done <-chan struct{}
-		}{
-			{"stdout", readerDone},
-			{"stderr", stderrDone},
-		} {
-			if waitClosedWithin(drain.done, primeTeardownGrace()) {
-				continue
-			}
-			b.cfg.Logger.Warn("prime-agent pipe still open after stdin EOF; forcing teardown",
-				"pipe", drain.name, "grace", primeTeardownGrace().String())
+		//
+		// This reuses hermes.go's waitForHermesPipeDrain rather than adding a
+		// second drain helper; the shape is the established one for this ACP
+		// family (drain, else cancel and join). The one deliberate difference
+		// is that the post-cancel join is bounded here too.
+		if !waitForHermesPipeDrain(readerDone, stderrDone, primeTeardownGrace()) {
+			b.cfg.Logger.Warn("prime-agent did not close output pipes after stdin EOF; forcing teardown",
+				"pid", cmd.Process.Pid, "grace", primeTeardownGrace().String())
 			cancel()
-			if !waitClosedWithin(drain.done, primeTeardownGrace()) {
-				b.cfg.Logger.Error("prime-agent pipe never reached EOF; continuing without a full drain",
-					"pipe", drain.name)
+			// Bounded a second time rather than joining unconditionally: the
+			// group kill releases a pipe held by a descendant inside the
+			// group, but a descendant that left it would keep this parked,
+			// which is the failure being fixed. Already-closed channels
+			// return immediately, so a pipe that drained in the first window
+			// costs nothing here.
+			if !waitForHermesPipeDrain(readerDone, stderrDone, primeTeardownGrace()) {
+				b.cfg.Logger.Error("prime-agent output pipes never reached EOF; continuing without a full drain",
+					"pid", cmd.Process.Pid)
 			}
 		}
 
