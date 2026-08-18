@@ -203,15 +203,33 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// RLM_MAX_DEPTH=0 and would silently re-enable subagents for
 	// Multica-driven runs too, since Multica does not isolate
 	// PRIME_AGENT_CODING_AGENT_DIR per task and so shares the same
-	// settings.json a direct/manual `prime-agent` invocation would use. This
-	// requires deliberate, out-of-band configuration by that user and is not
-	// reachable through the ACP wire protocol itself — the
-	// PrimeAgentSessionMeta.rlmMaxDepth/rlmDepth fields declared in
-	// acp-meta.ts are outbound telemetry only (never read as client input
-	// anywhere under modes/acp/) — so it is tracked as a P2 follow-up, not a
-	// Phase 1 regression. On a host with no such pre-existing global
-	// override — the default, and the case this provider's tests exercise —
-	// RLM_MAX_DEPTH=0 is effective.
+	// settings.json a direct/manual `prime-agent` invocation would use.
+	//
+	// Isolating that directory is the obvious mitigation and is NOT viable:
+	// getAgentDir (config.ts) does honour PRIME_AGENT_CODING_AGENT_DIR, but
+	// the same directory holds auth.json, models.json and the sessions/cron
+	// state, so pointing it at a per-task temp dir strips Prime of its
+	// credentials and fails every run. Prime exposes no CLI flag for the
+	// depth, and ACP mode never sets the per-session override that would
+	// outrank the global (nothing under modes/acp/ references rlmMaxDepth
+	// except outbound telemetry). Writing rlmMaxDepth into the user's own
+	// global settings.json is the only remaining lever and is not something a
+	// task runner should do to a developer's machine.
+	//
+	// The exposure is narrower than "untracked child processes" suggests: an
+	// RLM subagent is a `new AgentSession` inside the same prime-agent
+	// process, not a spawned OS process, so there is no descendant escaping
+	// the process group — what survives is in-process work continuing after
+	// Multica has reported the task complete.
+	//
+	// Reaching the global override requires deliberate, out-of-band
+	// configuration by the operating user and is not reachable through the
+	// ACP wire protocol itself — the PrimeAgentSessionMeta.rlmMaxDepth/
+	// rlmDepth fields declared in acp-meta.ts are outbound telemetry only
+	// (never read as client input anywhere under modes/acp/) — so it is
+	// tracked as a P2 follow-up, not a Phase 1 regression. On a host with no
+	// such pre-existing global override — the default, and the case this
+	// provider's tests exercise — RLM_MAX_DEPTH=0 is effective.
 	//
 	// This also removes the subagent-guidance section from Prime's own system
 	// prompt (allowRecursion is threaded into buildRlmPrompt), so the model
