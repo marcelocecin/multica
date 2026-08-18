@@ -252,7 +252,23 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		return nil, fmt.Errorf("prime-agent stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	// startOwnedProcessTree rather than cmd.Start so the tree is owned on
+	// Windows too. configureProcessGroup above is a no-op there, so without
+	// this nothing is registered in ownedProcessTrees, waitProcessGroupGone
+	// reports false unconditionally (never "the group is gone"), and
+	// signalProcessGroup falls back to killing the direct child alone — which
+	// for a .cmd/.ps1 shim may not even be prime-agent itself. On non-Windows
+	// this is exactly cmd.Start: the process group was already configured
+	// before the process existed.
+	//
+	// Owning the tree is safe for this backend specifically because ACP mode
+	// never spawns Prime's machine-wide daemon supervisor: the daemon is only
+	// started via ensureInteractiveDaemonRunning, which the ACP path never
+	// reaches (shouldEnsureInteractiveDaemonForStartup requires interactive
+	// mode), and DaemonClient.connect only dials an existing socket. A
+	// supervisor a member started separately is therefore not a descendant of
+	// this process and never joins this job.
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start prime-agent: %w", err)
 	}
@@ -383,6 +399,12 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			cancel()
 			_ = cmd.Wait()
 			close(procDone)
+			// The tree has been reaped; drop ownership. Only safe here, after
+			// Wait: on Windows releasing closes the job handle, which kills
+			// whatever is still inside it — correct for anything that outlived
+			// the reap, fatal if a live agent were still using it. No-op on
+			// other platforms.
+			releaseProcessGroup(cmd)
 		}()
 
 		startTime := time.Now()
