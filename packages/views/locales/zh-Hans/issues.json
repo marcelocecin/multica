@@ -4,6 +4,16 @@
     "hint": "没有它就无法应用状态筛选，因此暂时不显示议题。",
     "retry": "重试"
   },
+  "revision": {
+    "conflict": "任务或评论已发生变化。已刷新到最新版本，请比较后重新保存。",
+    "compare_title": "标题存在并发修改，请比较两个版本。",
+    "compare_description": "描述存在并发修改，请比较两个版本。",
+    "compare_comment": "评论存在并发修改，请比较两个版本。",
+    "server_version": "服务端最新版本",
+    "local_version": "你的本地版本",
+    "keep_local": "保留我的版本",
+    "use_server": "使用最新版本"
+  },
   "page": {
     "breadcrumb_title": "任务",
     "breadcrumb_workspace_fallback": "工作区",
@@ -627,7 +637,7 @@
       "archived_hint": "已归档属性——值为只读",
       "unknown_value": "无法显示",
       "unknown_value_hint": "该值由更新版本的 Multica 设置，当前版本无法编辑——请更新应用，或清除该值",
-      "none": "无值"
+      "none": "未设置"
     },
     "filter_options_aria": "筛选选项",
     "no_results": "无结果",
