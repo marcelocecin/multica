@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -959,13 +961,19 @@ func withPrimeAccountHome(t *testing.T, dir string, err error) {
 // somewhere the daemon's os.UserHomeDir() never points. Reading the daemon's
 // home would then miss a real global override.
 //
-// The three states are distinct and none of them is the daemon's own home:
+// The states are distinct, none of them is the daemon's own home, and the two
+// platforms disagree about one of them:
 //
 //   - set to a path: that path, on both runtimes.
-//   - set and empty: os.homedir() is "" because uv_os_getenv reports a
-//     zero-length hit rather than a miss. getAgentDir then returns the
-//     relative ".prime/agent". Go's os.UserHomeDir calls the same variable an
-//     error, so mirroring it here would have produced the daemon's home.
+//   - set and empty, POSIX: os.homedir() is "" because uv_os_getenv reports a
+//     zero-length hit rather than a miss, and uv_os_homedir returns it
+//     unchanged. getAgentDir then returns the relative ".prime/agent". Go's
+//     os.UserHomeDir calls the same variable an error, so mirroring it here
+//     would have produced the daemon's home.
+//   - set and shorter than three bytes, Windows: not decidable from here — the
+//     bundled libuv changed behaviour inside prime-agent's supported Node
+//     range — so the adapter refuses instead of resolving. That case has no
+//     value to pin here; it lives in the fail-closed test below.
 //   - absent: libuv falls through to the account database. os.UserHomeDir
 //     fails instead, so the fallback has to come from os/user.
 //
@@ -996,7 +1004,7 @@ func TestPrimeHomeDirFollowsTheChildEnvironment(t *testing.T) {
 
 		{"windows: USERPROFILE from custom_env wins", "windows", []string{`USERPROFILE=C:\agent`}, `C:\agent`},
 		{"windows: names are case-insensitive", "windows", []string{`USERPROFILE=C:\inherited`, `userprofile=C:\agent`}, `C:\agent`},
-		{"windows: empty USERPROFILE is an empty home", "windows", []string{"USERPROFILE="}, ""},
+		{"windows: three bytes is the shortest USERPROFILE the adapter accepts", "windows", []string{`USERPROFILE=C:\`}, `C:\`},
 		{"windows: absent USERPROFILE falls back to the process token", "windows", []string{"PATH=C:\\Windows"}, accountHome},
 		{"windows: HOME is not consulted", "windows", []string{"HOME=/agent/home"}, accountHome},
 		{
@@ -1052,6 +1060,52 @@ func TestPrimeHomeDirFailsClosedWhenTheAccountHomeIsUnknown(t *testing.T) {
 			t.Fatalf("primeHomeDir = %q, want an empty home", home)
 		}
 	})
+}
+
+// TestPrimeHomeDirRefusesAShortWindowsUserprofile pins a deliberate refusal,
+// not a reproduction of any one runtime's behaviour.
+//
+// uv_os_homedir's POSIX path returns whatever uv_os_getenv found, empty
+// included, at every Node version in range. Its Windows path does not agree
+// with itself across that range:
+//
+//	if (r == 0 && *size < 3) { return UV_ENOENT; }   (deps/uv/src/win/util.c)
+//
+// is present in Node 22.14.0 and absent in Node 22.8.0, which bundles libuv
+// 1.48.0 and is the floor prime-agent v0.7.1 declares in
+// cli/node-version-check.ts. The same USERPROFILE therefore makes os.homedir()
+// throw on one supported runtime and resolve to a relative .prime\agent on
+// another, and ACP carries no runtime version the adapter could branch on.
+//
+// Committing to either reading would point the gate at a settings file the
+// child may well not open — the same class of divergence as reading the
+// daemon's home. Refusing is the only answer that is right on both, so these
+// cases assert the refusal rather than a resolved path.
+//
+// The account fallback is left failing throughout, so a case that wrongly took
+// it would surface as the wrong error rather than passing.
+func TestPrimeHomeDirRefusesAShortWindowsUserprofile(t *testing.T) {
+	withPrimeAccountHome(t, "", errors.New("account database must not be consulted here"))
+
+	for _, value := range []string{"", "C", `C:`} {
+		t.Run("windows: "+strconv.Quote(value), func(t *testing.T) {
+			withPrimeGOOS(t, "windows")
+			if _, err := primeHomeDir([]string{"USERPROFILE=" + value}); !errors.Is(err, errPrimeHomeUnresolved) {
+				t.Fatalf("primeHomeDir error = %v, want errPrimeHomeUnresolved", err)
+			}
+		})
+
+		t.Run("posix keeps the same value: "+strconv.Quote(value), func(t *testing.T) {
+			withPrimeGOOS(t, "linux")
+			home, err := primeHomeDir([]string{"HOME=" + value})
+			if err != nil {
+				t.Fatalf("POSIX has no length check on HOME: %v", err)
+			}
+			if home != value {
+				t.Fatalf("primeHomeDir = %q, want %q", home, value)
+			}
+		})
+	}
 }
 
 // TestPrimeAgentDirForFollowsAnEmptyHomeToTheChildCwd is the resolver half of
@@ -1114,6 +1168,14 @@ func TestPrimeFailsClosedWhenCustomEnvMovesHome(t *testing.T) {
 // they were still working.
 func TestPrimeFailsClosedWhenTheChildHomeIsEmpty(t *testing.T) {
 	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		// A USERPROFILE this short is refused rather than resolved on Windows,
+		// because the supported Node versions disagree about what it means, so
+		// there is no relative agent dir to find here. That refusal is pinned
+		// by TestPrimeHomeDirRefusesAShortWindowsUserprofile.
+		t.Skip("an empty USERPROFILE is refused on Windows, not resolved")
+	}
 
 	cwd := t.TempDir()
 	agentDir := filepath.Join(cwd, ".prime", "agent")
@@ -1255,29 +1317,65 @@ func TestPrimeStillRunsWhenTheProvenHomeHasNoSettings(t *testing.T) {
 // what makes the log worth having. Everything a user or operator can put on
 // the command line — MULTICA_PRIME_ARGS, custom_args — is a value, and values
 // are what leaked before #7206: flag names survive, their arguments do not.
+//
+// The trust is pinned to the argv index the adapter owns, not to the token, so
+// the second case feeds the identical literal in from custom_args and expects
+// it redacted. A global allowlist on the string "acp" would pass the first
+// case and fail this one.
 func TestPrimeLogsTheAcpModeWithoutLeakingCustomArgs(t *testing.T) {
 	t.Parallel()
 
-	var buf strings.Builder
-	cfg := Config{Logger: slog.New(slog.NewTextHandler(&buf, nil))}
-	backend, err := New("prime", cfg)
-	if err != nil {
-		t.Fatalf("new prime backend: %v", err)
-	}
-	primeCfg := backend.(*primeBackend).cfg
-
 	const secret = "sk-super-secret-token"
-	primeArgs := []string{"--mode", "acp", "--api-key", secret, secret}
-	cmd := primeCfg.commandAt("prime-agent").exec(context.Background(), primeArgs...)
-	primeCfg.logAgentCommand(cmd, newAgentCommandLogArgs(primeArgs, trustAgentCommandPositional(1, "acp")))
 
-	logged := buf.String()
-	if strings.Contains(logged, secret) {
-		t.Fatalf("the launch log must not carry argument values: %s", logged)
+	cases := []struct {
+		name      string
+		primeArgs []string
+		keep      []string
+		// acpTokens is how many times the literal appears in the log: once for
+		// the adapter's own --mode value, never for a copy from custom_args.
+		acpTokens int
+	}{
+		{
+			name:      "adapter invocation survives, argument values do not",
+			primeArgs: []string{"--mode", "acp", "--api-key", secret, secret},
+			keep:      []string{"provider=prime", "--mode", "acp", "--api-key"},
+			acpTokens: 1,
+		},
+		{
+			name:      "the same literal from custom_args is still redacted",
+			primeArgs: []string{"--mode", "acp", "--resume", "acp", secret},
+			keep:      []string{"provider=prime", "--mode", "--resume"},
+			acpTokens: 1,
+		},
 	}
-	for _, want := range []string{"provider=prime", "--mode", "acp", "--api-key"} {
-		if !strings.Contains(logged, want) {
-			t.Fatalf("the launch log must keep %q for diagnostics: %s", want, logged)
-		}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf strings.Builder
+			backend, err := New("prime", Config{Logger: slog.New(slog.NewTextHandler(&buf, nil))})
+			if err != nil {
+				t.Fatalf("new prime backend: %v", err)
+			}
+			primeCfg := backend.(*primeBackend).cfg
+
+			cmd := primeCfg.commandAt("prime-agent").exec(context.Background(), tc.primeArgs...)
+			primeCfg.logAgentCommand(cmd, newAgentCommandLogArgs(tc.primeArgs, trustAgentCommandPositional(1, "acp")))
+
+			logged := buf.String()
+			if strings.Contains(logged, secret) {
+				t.Fatalf("the launch log must not carry argument values: %s", logged)
+			}
+			for _, want := range tc.keep {
+				if !strings.Contains(logged, want) {
+					t.Fatalf("the launch log must keep %q for diagnostics: %s", want, logged)
+				}
+			}
+			if got := strings.Count(logged, "acp"); got != tc.acpTokens {
+				t.Fatalf("the literal acp appears %d times, want %d — trust follows the argv index, not the token: %s",
+					got, tc.acpTokens, logged)
+			}
+		})
 	}
 }

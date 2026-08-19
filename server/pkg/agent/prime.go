@@ -132,31 +132,53 @@ var primeAccountHome = func() (string, error) {
 // override — the same divergence class as the explicitly-empty and relative
 // PRIME_AGENT_CODING_AGENT_DIR cases.
 //
-// Present-but-empty and absent are two different directories, and Go's own
-// helper cannot tell them apart:
+// Present-but-empty and absent are two different outcomes, Go's own helper
+// cannot tell them apart, and the two platforms do not agree on the first one:
 //
-//   - Present and empty. uv_os_getenv reads the variable successfully and
-//     returns a zero-length value, so os.homedir() is "". getAgentDir then
-//     evaluates join("", ".prime/agent") — a *relative* path the child
-//     resolves against its own working directory, i.e. opts.Cwd. Go's
-//     os.UserHomeDir treats the same variable as an error, which is why this
-//     case has to be handled before falling back to anything.
-//   - Absent. uv_os_getenv returns UV_ENOENT and libuv falls through to the
-//     account database, giving the real account home. os.UserHomeDir returns
-//     an error here too, so it cannot stand in for that fallback.
+//   - Present, POSIX. uv_os_getenv reads the variable successfully and returns
+//     a zero-length value; uv_os_homedir returns it as-is ("if (r != UV_ENOENT)
+//     return r;", src/unix/core.c), so os.homedir() is "". getAgentDir then
+//     evaluates join("", CONFIG_DIR_NAME) — a *relative* path the child
+//     resolves against its own working directory, i.e. opts.Cwd.
 //
-// Returning ("", nil) therefore means a proven empty home, not a failure;
-// failure is errPrimeHomeUnresolved and the caller must fail closed on it.
+//   - Present, Windows, shorter than three bytes. This one is not decidable
+//     from here, because the bundled libuv disagrees with itself across the
+//     runtimes prime-agent supports. Node 22.14.0 carries
+//
+//     if (r == 0 && *size < 3) { return UV_ENOENT; }   (deps/uv/src/win/util.c)
+//
+//     which returns without consulting the account database, so os.homedir()
+//     throws. Node 22.8.0 — the floor prime-agent v0.7.1 declares in
+//     cli/node-version-check.ts, carrying libuv 1.48.0 — has no such check and
+//     returns the empty value, so getAgentDir() goes relative instead. Both
+//     are in range and ACP exposes no runtime version, so the adapter cannot
+//     tell which settings path the child would consult. It refuses rather than
+//     guess. There is no equivalent length check on the POSIX side at either
+//     version, so this applies to Windows alone.
+//
+//   - Absent, both. uv_os_getenv returns UV_ENOENT and libuv falls through to
+//     the account database, giving the real account home. os.UserHomeDir
+//     returns an error here too, so it cannot stand in for that fallback.
+//
+// Returning ("", nil) therefore means a proven empty home on POSIX, not a
+// failure; failure is errPrimeHomeUnresolved and the caller must fail closed
+// on it.
 func primeHomeDir(env []string) (string, error) {
 	if home, present := primeLookupEnv(env, primeHomeEnvKey()); present {
+		if primeGOOS == "windows" && len(home) < 3 {
+			return "", fmt.Errorf("%w: %s is %q, which the Node versions prime-agent supports resolve differently — 22.14.0 makes os.homedir() throw, 22.8.0 returns it as an empty home — and the runtime version is not visible over ACP",
+				errPrimeHomeUnresolved, primeHomeEnvKey(), home)
+		}
 		return home, nil
 	}
 	home, err := primeAccountHome()
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", errPrimeHomeUnresolved, err)
+		return "", fmt.Errorf("%w: %s is absent from the agent's environment and the account database could not be read: %v",
+			errPrimeHomeUnresolved, primeHomeEnvKey(), err)
 	}
 	if home == "" {
-		return "", errPrimeHomeUnresolved
+		return "", fmt.Errorf("%w: %s is absent from the agent's environment and the account database names no home directory",
+			errPrimeHomeUnresolved, primeHomeEnvKey())
 	}
 	return home, nil
 }
@@ -380,11 +402,10 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// still read a global settings.json from a directory the daemon just
 		// admitted it cannot name.
 		return nil, fmt.Errorf(
-			"cannot determine which prime-agent settings.json the task would run against (%w); "+
-				"%s is absent from the agent's environment and the account's home directory could not be read, "+
-				"so a global rlmMaxDepth that re-enables RLM subagents would go unnoticed. "+
+			"cannot determine which prime-agent settings.json the task would run against: %w; "+
+				"a global rlmMaxDepth that re-enables RLM subagents would go unnoticed, so the run is refused. "+
 				"Set %s or PRIME_AGENT_CODING_AGENT_DIR in the agent's custom_env to run Prime tasks from Multica",
-			err, primeHomeEnvKey(), primeHomeEnvKey())
+			err, primeHomeEnvKey())
 	}
 	if depth, ok := primeGlobalRlmMaxDepthIn(agentDir); ok && depth > 0 {
 		return nil, fmt.Errorf(
