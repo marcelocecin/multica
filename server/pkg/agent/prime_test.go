@@ -918,3 +918,98 @@ func TestPrimeFailsClosedOnRelativeGlobalAgentDir(t *testing.T) {
 		t.Fatalf("the refusal must name the resolved settings file: %v", err)
 	}
 }
+
+// withPrimeGOOS points the resolver at a target platform for one test.
+func withPrimeGOOS(t *testing.T, goos string) {
+	t.Helper()
+	previous := primeGOOS
+	primeGOOS = goos
+	t.Cleanup(func() { primeGOOS = previous })
+}
+
+// TestPrimeHomeDirFollowsTheChildEnvironment closes the last way the
+// fail-closed gate could read a different settings.json from the one Prime
+// opens.
+//
+// PRIME_AGENT_CODING_AGENT_DIR is only half of the resolution; when it is
+// unset, the path is <home>/.prime/agent, and `home` is itself environment-
+// derived. custom_env accepts any key and has no blocklist, so an agent can
+// set HOME (POSIX) or USERPROFILE (Windows) and move the child's os.homedir()
+// somewhere the daemon's os.UserHomeDir() never points. Reading the daemon's
+// home would then miss a real global override.
+//
+// HOMEDRIVE and HOMEPATH are covered here precisely because they must NOT
+// matter: os.UserHomeDir keys off USERPROFILE alone on Windows, and so does
+// libuv's uv_os_homedir before falling back to GetUserProfileDirectoryW.
+// Neither side moves, so they cannot desynchronise the two — a test that
+// asserted otherwise would be pinning behaviour Prime does not have.
+func TestPrimeHomeDirFollowsTheChildEnvironment(t *testing.T) {
+	daemonHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory on this host: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		goos string
+		env  []string
+		want string
+	}{
+		{"posix: HOME from custom_env wins", "linux", []string{"HOME=/agent/home"}, "/agent/home"},
+		{"posix: absent HOME falls back to the daemon's", "linux", []string{"PATH=/usr/bin"}, daemonHome},
+		{"posix: empty HOME is unset, as os.UserHomeDir treats it", "linux", []string{"HOME="}, daemonHome},
+		{"posix: a later entry shadows an earlier one", "linux", []string{"HOME=/first", "HOME=/second"}, "/second"},
+		{"posix: USERPROFILE is not consulted", "linux", []string{"USERPROFILE=C:\\agent"}, daemonHome},
+
+		{"windows: USERPROFILE from custom_env wins", "windows", []string{`USERPROFILE=C:\agent`}, `C:\agent`},
+		{"windows: names are case-insensitive", "windows", []string{`USERPROFILE=C:\inherited`, `userprofile=C:\agent`}, `C:\agent`},
+		{"windows: empty USERPROFILE falls back", "windows", []string{"USERPROFILE="}, daemonHome},
+		{"windows: HOME is not consulted", "windows", []string{"HOME=/agent/home"}, daemonHome},
+		{
+			"windows: HOMEDRIVE and HOMEPATH move neither runtime",
+			"windows", []string{`HOMEDRIVE=D:`, `HOMEPATH=\agent`}, daemonHome,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withPrimeGOOS(t, tc.goos)
+			if got := primeHomeDir(tc.env); got != tc.want {
+				t.Fatalf("primeHomeDir = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPrimeFailsClosedWhenCustomEnvMovesHome is the escape driven end to end:
+// custom_env relocates the child's home, the override lives under that home's
+// .prime/agent, and a gate reading the daemon's home would never open it.
+func TestPrimeFailsClosedWhenCustomEnvMovesHome(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".prime", "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(`{"rlmMaxDepth": 3}`), 0o600); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+
+	// The key the running platform actually resolves home from; primeGOOS is
+	// left alone so this exercises the real code path on this runner.
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+		Env:            map[string]string{primeHomeEnvKey(): home},
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "rlmMaxDepth") {
+		t.Fatalf("custom_env moved the child's home; the gate must follow it, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), agentDir) {
+		t.Fatalf("the refusal must name the settings file under the relocated home: %v", err)
+	}
+}

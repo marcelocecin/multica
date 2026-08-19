@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +43,69 @@ type primeGlobalSettings struct {
 // must be discarded here too.
 const jsMaxSafeInteger = 9007199254740991
 
+// primeGOOS is runtime.GOOS, overridable so tests can cover the Windows
+// resolution from any runner. Never assigned outside tests. Mirrors
+// reasonixGOOS in internal/daemon/execenv.
+var primeGOOS = runtime.GOOS
+
+// primeHomeEnvKey is the variable that decides the child's home directory:
+// USERPROFILE on Windows, HOME everywhere else. This is the pair both
+// os.UserHomeDir and Node's os.homedir (libuv's uv_os_homedir) key off, and the
+// same pair openclawDiscoveryEnvVars tracks for the same reason. HOMEDRIVE and
+// HOMEPATH are deliberately absent: neither runtime consults them, so setting
+// them moves neither side and cannot desynchronise the two.
+func primeHomeEnvKey() string {
+	if primeGOOS == "windows" {
+		return "USERPROFILE"
+	}
+	return "HOME"
+}
+
+// primeLookupEnv returns the value the child would see for name, or "" when it
+// would see none.
+//
+// Later entries win, matching how exec resolves duplicates, and on Windows the
+// comparison is case-insensitive because environment names are: an agent whose
+// custom_env declared "userprofile" still overrides the inherited
+// "USERPROFILE".
+func primeLookupEnv(env []string, name string) string {
+	value := ""
+	for _, entry := range env {
+		key, v, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if key == name || (primeGOOS == "windows" && strings.EqualFold(key, name)) {
+			value = v
+		}
+	}
+	return value
+}
+
+// primeHomeDir resolves the home directory the spawned prime-agent would use.
+//
+// It must come from the child's environment, not the daemon's: custom_env
+// accepts any key, so an agent can set HOME or USERPROFILE, and the child's
+// os.homedir() then points somewhere the daemon's os.UserHomeDir() never would.
+// Resolving from the daemon would make the fail-closed gate open a different
+// ~/.prime/agent/settings.json from the one Prime reads, and miss a real
+// override — the same divergence class as the explicitly-empty and relative
+// PRIME_AGENT_CODING_AGENT_DIR cases.
+//
+// An empty value counts as unset on both sides: Go's os.UserHomeDir ignores an
+// empty variable, and libuv falls back to the password database (POSIX) or
+// GetUserProfileDirectoryW (Windows) rather than treating it as a path.
+func primeHomeDir(env []string) string {
+	if home := primeLookupEnv(env, primeHomeEnvKey()); home != "" {
+		return home
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
 // primeAgentDirFor resolves the directory the SPAWNED prime-agent would read
 // its global settings from, mirroring getAgentDir
 // (packages/coding-agent/src/config.ts).
@@ -62,18 +126,8 @@ const jsMaxSafeInteger = 9007199254740991
 // Returns "" when no home directory can be determined and none was configured,
 // which the caller reads as "no global settings to inspect".
 func primeAgentDirFor(env []string, cwd string) string {
-	dir := ""
-	for _, entry := range env {
-		if key, value, ok := strings.Cut(entry, "="); ok && key == "PRIME_AGENT_CODING_AGENT_DIR" {
-			// Last occurrence wins, matching how exec resolves duplicates.
-			dir = value
-		}
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
-	}
+	dir := primeLookupEnv(env, "PRIME_AGENT_CODING_AGENT_DIR")
+	home := primeHomeDir(env)
 	if dir == "" {
 		if home == "" {
 			return ""
