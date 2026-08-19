@@ -344,7 +344,10 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// kill; WaitDelay remains the hard backstop.
 	cmd.Cancel = func() error { return nil }
 	hideAgentWindow(cmd)
-	b.cfg.Logger.Info("agent command", "exec", execPath, "args", primeArgs)
+	// `acp` is the adapter's own literal for --mode, so it stays readable in
+	// the log; every other token, including anything that arrived through
+	// ExtraArgs or CustomArgs, is redacted by value at the launch boundary.
+	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(primeArgs, trustAgentCommandPositional(1, "acp")))
 	cmd.WaitDelay = 10 * time.Second
 	agentsMDPresent := false
 	if opts.Cwd != "" {

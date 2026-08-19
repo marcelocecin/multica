@@ -1013,3 +1013,37 @@ func TestPrimeFailsClosedWhenCustomEnvMovesHome(t *testing.T) {
 		t.Fatalf("the refusal must name the settings file under the relocated home: %v", err)
 	}
 }
+
+// TestPrimeLogsTheAcpModeWithoutLeakingCustomArgs pins what the launch log
+// keeps and what it drops for this backend.
+//
+// `--mode acp` is the adapter's own invocation and stays readable, which is
+// what makes the log worth having. Everything a user or operator can put on
+// the command line — MULTICA_PRIME_ARGS, custom_args — is a value, and values
+// are what leaked before #7206: flag names survive, their arguments do not.
+func TestPrimeLogsTheAcpModeWithoutLeakingCustomArgs(t *testing.T) {
+	t.Parallel()
+
+	var buf strings.Builder
+	cfg := Config{Logger: slog.New(slog.NewTextHandler(&buf, nil))}
+	backend, err := New("prime", cfg)
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+	primeCfg := backend.(*primeBackend).cfg
+
+	const secret = "sk-super-secret-token"
+	primeArgs := []string{"--mode", "acp", "--api-key", secret, secret}
+	cmd := primeCfg.commandAt("prime-agent").exec(context.Background(), primeArgs...)
+	primeCfg.logAgentCommand(cmd, newAgentCommandLogArgs(primeArgs, trustAgentCommandPositional(1, "acp")))
+
+	logged := buf.String()
+	if strings.Contains(logged, secret) {
+		t.Fatalf("the launch log must not carry argument values: %s", logged)
+	}
+	for _, want := range []string{"provider=prime", "--mode", "acp", "--api-key"} {
+		if !strings.Contains(logged, want) {
+			t.Fatalf("the launch log must keep %q for diagnostics: %s", want, logged)
+		}
+	}
+}
