@@ -589,8 +589,14 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
 
-	var outputMu sync.Mutex
-	var output strings.Builder
+	// deliverable splits the turn's text stream into the final user-facing
+	// answer and the full transcript. Result.Output becomes the channel reply
+	// and the auto-generated issue comment, so interim narration must not
+	// reach it (#6006) — Prime emits narration and the final answer as the
+	// same agent_message_chunk, exactly the shape acpDeliverableTracker
+	// exists for. The full stream still feeds
+	// promoteACPResultOnProviderError, which must keep seeing every chunk.
+	var deliverable acpDeliverableTracker
 
 	promptDone := make(chan hermesPromptResult, 1)
 
@@ -600,11 +606,7 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		pending:      make(map[int]*pendingRPC),
 		pendingTools: make(map[string]*pendingToolCall),
 		onMessage: func(msg Message) {
-			if msg.Type == MessageText {
-				outputMu.Lock()
-				output.WriteString(msg.Content)
-				outputMu.Unlock()
-			}
+			deliverable.observe(msg)
 			trySend(msgCh, msg)
 		},
 		onPromptDone: func(result hermesPromptResult) {
@@ -713,6 +715,10 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 
 		startTime := time.Now()
 		finalStatus := "completed"
+		// connectionTornDown records that the run was cancelled from outside,
+		// which is what makes the ACP connection unusable for a final
+		// session/close (see step 5).
+		connectionTornDown := false
 		var finalError string
 		var sessionID string
 
@@ -813,6 +819,11 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			} else if runCtx.Err() == context.Canceled {
 				finalStatus = "aborted"
 				finalError = "execution cancelled"
+				// The cancellation handler is already tearing the transport
+				// down (stdin EOF, then a group signal), so the connection
+				// this would need is going away. See the session/close guard
+				// below.
+				connectionTornDown = true
 			} else {
 				finalStatus = "failed"
 				finalError = fmt.Sprintf("prime-agent session/prompt failed: %v", err)
@@ -821,8 +832,18 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			select {
 			case pr := <-promptDone:
 				if pr.stopReason == "cancelled" {
+					// Prime ended the turn itself. Multica never sends
+					// session/cancel, so this is Prime's own decision and the
+					// output is truncated — reporting "completed" would present
+					// a partial answer as a finished one. hermes, kimi, kiro,
+					// qoder, traecli, grok and mcode all classify it "aborted";
+					// this branch is only reachable with session/prompt having
+					// returned no error, so finalStatus is still "completed"
+					// here and no terminal decision is being overwritten.
 					duration := time.Since(startTime)
 					b.cfg.Logger.Info("prime-agent prompt cancelled", "stopReason", pr.stopReason, "duration", duration.Round(time.Millisecond).String())
+					finalStatus = "aborted"
+					finalError = "prime-agent cancelled the prompt"
 				}
 				c.mergeUsage(pr.usage)
 			default:
@@ -835,7 +856,15 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// here must not overwrite an already-decided finalStatus/finalError,
 		// and the closeStdin + cmd.Wait() in the deferred cleanup above still
 		// run regardless.
-		if finalStatus != "aborted" {
+		//
+		// The guard keys off the transport's actual state, not off
+		// finalStatus. Both are "aborted", but only one has a dead connection:
+		// an externally cancelled run is already being torn down, while a turn
+		// Prime itself ended with stopReason "cancelled" returned normally over
+		// a live connection and still owns a session worth closing. Keying off
+		// the status string would have silently stopped closing that session
+		// the moment the self-cancel path started reporting "aborted".
+		if !connectionTornDown {
 			if _, closeErr := c.request(runCtx, "session/close", map[string]any{
 				"sessionId": sessionID,
 			}); closeErr != nil {
@@ -872,11 +901,12 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// and cannot disturb finalStatus, which is already decided here.
 		//
 		// Giving up after the second window is safe rather than merely
-		// pragmatic: every value read below is mutex-guarded — output by
-		// outputMu, the sniffer by its own mutex, usage by usageMu — so
-		// continuing while a goroutine is still writing races nothing. The
-		// only cost is trailing output that a wedged descendant was delaying
-		// anyway, and cmd.WaitDelay now becomes reachable in the deferred
+		// pragmatic: every value read below is mutex-guarded — the text stream
+		// by the deliverable tracker's own mutex, the sniffer by its own
+		// mutex, usage by usageMu — so continuing while a goroutine is still
+		// writing races nothing. The only cost is trailing output that a
+		// wedged descendant was delaying anyway, and cmd.WaitDelay now
+		// becomes reachable in the deferred
 		// cleanup, which is what finally reaps the process.
 		//
 		// This reuses hermes.go's waitForHermesPipeDrain rather than adding a
@@ -899,11 +929,9 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			}
 		}
 
-		outputMu.Lock()
-		finalOutput := output.String()
-		outputMu.Unlock()
+		finalOutput, providerErrorOutput := deliverable.result()
 
-		finalStatus, finalError = promoteACPResultOnProviderError(finalStatus, finalError, finalOutput, providerErr)
+		finalStatus, finalError = promoteACPResultOnProviderError(finalStatus, finalError, providerErrorOutput, providerErr)
 
 		u := c.accumulatedUsage()
 

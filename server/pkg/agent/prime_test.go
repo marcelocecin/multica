@@ -1379,3 +1379,160 @@ func TestPrimeLogsTheAcpModeWithoutLeakingCustomArgs(t *testing.T) {
 		})
 	}
 }
+
+// TestPrimeThinkingNeverReachesResultOutput covers the half of the deliverable
+// boundary the shared acpDeliverableCases table cannot reach: reasoning.
+//
+// Prime streams reasoning as `agent_thought_chunk` (verified against
+// prime-agent v0.7.1's own packages/coding-agent/test/acp-events.test.ts),
+// which the ACP transport surfaces as MessageThinking. The shared regression
+// test drives narration, which arrives as ordinary MessageText and is bounded
+// by the tool call; a thought chunk is bounded by nothing, so a turn with no
+// tool call at all would still leak it if Result.Output were rebuilt from
+// every message rather than from the tracker's text stream.
+//
+// Reasoning must stay visible in session.Messages — the UI renders it — while
+// never reaching Result.Output, which becomes the channel reply and the
+// auto-generated issue comment.
+func TestPrimeThinkingNeverReachesResultOutput(t *testing.T) {
+	t.Parallel()
+
+	const (
+		thought = "The user probably means the deployment diagram."
+		answer  = "It is the deployment diagram."
+	)
+
+	notify := func(update string) string {
+		return `      printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_prime_new","update":` +
+			update + `}}\n'`
+	}
+	script := "#!/bin/sh\n" + `while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}\n' "$id"
+      ;;
+    *'"method":"session/new"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_prime_new"}}\n' "$id"
+      ;;
+    *'"method":"session/prompt"'*)
+` + notify(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"`+thought+`"}}`) + `
+` + notify(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"`+answer+`"}}`) + `
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"
+      ;;
+    *'"method":"session/close"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
+      ;;
+  esac
+done
+`
+
+	b, err := New("prime", Config{
+		ExecutablePath: writeFakePrimeScript(t, script),
+		Logger:         testLogger(),
+		// Prime's fail-closed rlmMaxDepth gate resolves the settings path from
+		// the child environment, so pin it away from the developer's own home.
+		Env: map[string]string{primeHomeEnvKey(): t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("New(prime) error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	session, err := b.Execute(ctx, "which diagram?", ExecOptions{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	var sawThinking bool
+	for msg := range session.Messages {
+		if msg.Type == MessageThinking && strings.Contains(msg.Content, thought) {
+			sawThinking = true
+		}
+	}
+
+	result := <-session.Result
+	if result.Status != "completed" {
+		t.Fatalf("status = %q, want completed (error=%q)", result.Status, result.Error)
+	}
+	if !sawThinking {
+		t.Error("reasoning never reached session.Messages as MessageThinking; the UI would lose it")
+	}
+	if strings.Contains(result.Output, thought) {
+		t.Errorf("Result.Output = %q leaked the reasoning chunk %q", result.Output, thought)
+	}
+	if result.Output != answer {
+		t.Errorf("Result.Output = %q, want the deliverable answer %q", result.Output, answer)
+	}
+}
+
+// TestPrimeSelfCancelledTurnIsAborted covers a turn Prime ends on its own.
+//
+// Multica never sends session/cancel, so stopReason "cancelled" means Prime
+// stopped for its own reasons and the output is truncated. Reporting
+// "completed" would present a partial answer as a finished one — every other
+// ACP backend here (hermes, kimi, kiro, qoder, traecli, grok, mcode) reports
+// "aborted".
+//
+// The second assertion is the one that is easy to lose: session/close must
+// still be sent. This path returns normally over a live connection, unlike an
+// externally cancelled run whose transport is already being torn down, and
+// Prime is one of the few ACP backends that actually implements session/close.
+func TestPrimeSelfCancelledTurnIsAborted(t *testing.T) {
+	t.Parallel()
+
+	reqFile := filepath.Join(t.TempDir(), "requests.txt")
+	script := "#!/bin/sh\n" + `while IFS= read -r line; do
+  printf '%s\n' "$line" >> "` + reqFile + `"
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}\n' "$id"
+      ;;
+    *'"method":"session/new"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_prime_new"}}\n' "$id"
+      ;;
+    *'"method":"session/prompt"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$id"
+      ;;
+    *'"method":"session/close"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
+      ;;
+  esac
+done
+`
+
+	b, err := New("prime", Config{
+		ExecutablePath: writeFakePrimeScript(t, script),
+		Logger:         testLogger(),
+		Env:            map[string]string{primeHomeEnvKey(): t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("New(prime) error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	session, err := b.Execute(ctx, "do something long", ExecOptions{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	for range session.Messages {
+	}
+
+	result := <-session.Result
+	if result.Status != "aborted" {
+		t.Errorf("Status = %q, want aborted — Prime ended the turn itself, so the output is truncated", result.Status)
+	}
+
+	requests, err := os.ReadFile(reqFile)
+	if err != nil {
+		t.Fatalf("read captured requests: %v", err)
+	}
+	if !strings.Contains(string(requests), `"method":"session/close"`) {
+		t.Errorf("session/close was never sent; the connection was still live and Prime's session was left open.\nrequests:\n%s", requests)
+	}
+}
