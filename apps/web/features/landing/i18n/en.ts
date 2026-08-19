@@ -192,7 +192,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         question: "What coding agents does Multica support?",
         answer:
-          "Multica supports 23 coding tools out of the box: Antigravity, Claude Code, CodeBuddy, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Prime Agent, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, and Trae CLI. The daemon auto-detects whichever CLIs you already have installed and registers a runtime for each one. Since it's open source, you can also add your own backends.",
+          "Multica supports 24 coding tools out of the box: Antigravity, Claude Code, CodeBuddy, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Prime Agent, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, and Trae CLI. The daemon auto-detects whichever CLIs you already have installed and registers a runtime for each one. Since it's open source, you can also add your own backends.",
       },
       {
         question: "Do I need to self-host, or is there a cloud version?",
