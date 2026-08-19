@@ -496,6 +496,7 @@ jobs:
       # -run '^$' compiles the package's tests without executing any, so this
       # resolves no agent CLI, needs no account and consumes no quota.
       - name: Build agentintegration-tagged tests
+        if: ${{ needs.changes.outputs.backend == 'true' }}
         run: cd server && go test -tags=agentintegration ./pkg/agent -run '^$' -count=1
 
       - name: Run migrations
