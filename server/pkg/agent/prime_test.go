@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -837,9 +838,13 @@ func TestPrimeFailsClosedOnGlobalRlmMaxDepth(t *testing.T) {
 func TestPrimeAgentDirForMatchesTheChildProcess(t *testing.T) {
 	t.Parallel()
 
-	home, err := os.UserHomeDir()
+	// The env slices below never name HOME/USERPROFILE, so the resolver takes
+	// the account-home fallback. Read it through the same seam the resolver
+	// uses rather than os.UserHomeDir, which answers from the daemon's own
+	// environment and is exactly what this resolver must not do.
+	home, err := primeAccountHome()
 	if err != nil {
-		t.Skipf("no home directory on this host: %v", err)
+		t.Skipf("no account home directory on this host: %v", err)
 	}
 	defaultDir := filepath.Join(home, ".prime", "agent")
 
@@ -877,7 +882,11 @@ func TestPrimeAgentDirForMatchesTheChildProcess(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := primeAgentDirFor(tc.env, tc.cwd); got != tc.want {
+			got, err := primeAgentDirFor(tc.env, tc.cwd)
+			if err != nil {
+				t.Fatalf("primeAgentDirFor: %v", err)
+			}
+			if got != tc.want {
 				t.Fatalf("primeAgentDirFor = %q, want %q", got, tc.want)
 			}
 		})
@@ -927,6 +936,18 @@ func withPrimeGOOS(t *testing.T, goos string) {
 	t.Cleanup(func() { primeGOOS = previous })
 }
 
+// withPrimeAccountHome points the account-home fallback at a fixed answer for
+// one test, so both the resolved and the unresolvable branch can be driven on
+// any host. Without it these cases would depend on the runner's passwd entry —
+// and the previous version of this test skipped itself whenever HOME was
+// absent, which silently retired the very case it was meant to cover.
+func withPrimeAccountHome(t *testing.T, dir string, err error) {
+	t.Helper()
+	previous := primeAccountHome
+	primeAccountHome = func() (string, error) { return dir, err }
+	t.Cleanup(func() { primeAccountHome = previous })
+}
+
 // TestPrimeHomeDirFollowsTheChildEnvironment closes the last way the
 // fail-closed gate could read a different settings.json from the one Prime
 // opens.
@@ -938,16 +959,24 @@ func withPrimeGOOS(t *testing.T, goos string) {
 // somewhere the daemon's os.UserHomeDir() never points. Reading the daemon's
 // home would then miss a real global override.
 //
+// The three states are distinct and none of them is the daemon's own home:
+//
+//   - set to a path: that path, on both runtimes.
+//   - set and empty: os.homedir() is "" because uv_os_getenv reports a
+//     zero-length hit rather than a miss. getAgentDir then returns the
+//     relative ".prime/agent". Go's os.UserHomeDir calls the same variable an
+//     error, so mirroring it here would have produced the daemon's home.
+//   - absent: libuv falls through to the account database. os.UserHomeDir
+//     fails instead, so the fallback has to come from os/user.
+//
 // HOMEDRIVE and HOMEPATH are covered here precisely because they must NOT
-// matter: os.UserHomeDir keys off USERPROFILE alone on Windows, and so does
-// libuv's uv_os_homedir before falling back to GetUserProfileDirectoryW.
-// Neither side moves, so they cannot desynchronise the two — a test that
-// asserted otherwise would be pinning behaviour Prime does not have.
+// matter: os/user keys off the process token on Windows, and so does libuv's
+// uv_os_homedir before consulting USERPROFILE. Neither side moves, so they
+// cannot desynchronise the two — a test that asserted otherwise would be
+// pinning behaviour Prime does not have.
 func TestPrimeHomeDirFollowsTheChildEnvironment(t *testing.T) {
-	daemonHome, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("no home directory on this host: %v", err)
-	}
+	const accountHome = "/account/home"
+	withPrimeAccountHome(t, accountHome, nil)
 
 	cases := []struct {
 		name string
@@ -956,28 +985,88 @@ func TestPrimeHomeDirFollowsTheChildEnvironment(t *testing.T) {
 		want string
 	}{
 		{"posix: HOME from custom_env wins", "linux", []string{"HOME=/agent/home"}, "/agent/home"},
-		{"posix: absent HOME falls back to the daemon's", "linux", []string{"PATH=/usr/bin"}, daemonHome},
-		{"posix: empty HOME is unset, as os.UserHomeDir treats it", "linux", []string{"HOME="}, daemonHome},
+		{"posix: absent HOME falls back to the account database", "linux", []string{"PATH=/usr/bin"}, accountHome},
+		{"posix: empty HOME is an empty home, not an absent one", "linux", []string{"HOME="}, ""},
+		{
+			"posix: an empty entry still shadows an earlier path",
+			"linux", []string{"HOME=/inherited", "HOME="}, "",
+		},
 		{"posix: a later entry shadows an earlier one", "linux", []string{"HOME=/first", "HOME=/second"}, "/second"},
-		{"posix: USERPROFILE is not consulted", "linux", []string{"USERPROFILE=C:\\agent"}, daemonHome},
+		{"posix: USERPROFILE is not consulted", "linux", []string{"USERPROFILE=C:\\agent"}, accountHome},
 
 		{"windows: USERPROFILE from custom_env wins", "windows", []string{`USERPROFILE=C:\agent`}, `C:\agent`},
 		{"windows: names are case-insensitive", "windows", []string{`USERPROFILE=C:\inherited`, `userprofile=C:\agent`}, `C:\agent`},
-		{"windows: empty USERPROFILE falls back", "windows", []string{"USERPROFILE="}, daemonHome},
-		{"windows: HOME is not consulted", "windows", []string{"HOME=/agent/home"}, daemonHome},
+		{"windows: empty USERPROFILE is an empty home", "windows", []string{"USERPROFILE="}, ""},
+		{"windows: absent USERPROFILE falls back to the process token", "windows", []string{"PATH=C:\\Windows"}, accountHome},
+		{"windows: HOME is not consulted", "windows", []string{"HOME=/agent/home"}, accountHome},
 		{
 			"windows: HOMEDRIVE and HOMEPATH move neither runtime",
-			"windows", []string{`HOMEDRIVE=D:`, `HOMEPATH=\agent`}, daemonHome,
+			"windows", []string{`HOMEDRIVE=D:`, `HOMEPATH=\agent`}, accountHome,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withPrimeGOOS(t, tc.goos)
-			if got := primeHomeDir(tc.env); got != tc.want {
+			got, err := primeHomeDir(tc.env)
+			if err != nil {
+				t.Fatalf("primeHomeDir: %v", err)
+			}
+			if got != tc.want {
 				t.Fatalf("primeHomeDir = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestPrimeHomeDirFailsClosedWhenTheAccountHomeIsUnknown pins the third
+// outcome. An absent HOME with no readable account entry is not "no global
+// settings to inspect": the child would still resolve a home of its own and
+// could still read an rlmMaxDepth from it. Returning a directory the daemon
+// cannot justify — its own — is what reopened the bug; returning an error is
+// what lets Execute refuse.
+func TestPrimeHomeDirFailsClosedWhenTheAccountHomeIsUnknown(t *testing.T) {
+	withPrimeGOOS(t, "linux")
+
+	t.Run("lookup fails", func(t *testing.T) {
+		withPrimeAccountHome(t, "", errors.New("no passwd entry"))
+		if _, err := primeHomeDir([]string{"PATH=/usr/bin"}); !errors.Is(err, errPrimeHomeUnresolved) {
+			t.Fatalf("primeHomeDir error = %v, want errPrimeHomeUnresolved", err)
+		}
+	})
+
+	t.Run("lookup succeeds with an empty directory", func(t *testing.T) {
+		withPrimeAccountHome(t, "", nil)
+		if _, err := primeHomeDir([]string{"PATH=/usr/bin"}); !errors.Is(err, errPrimeHomeUnresolved) {
+			t.Fatalf("primeHomeDir error = %v, want errPrimeHomeUnresolved", err)
+		}
+	})
+
+	t.Run("an explicit empty value is still resolved, not refused", func(t *testing.T) {
+		withPrimeAccountHome(t, "", errors.New("no passwd entry"))
+		home, err := primeHomeDir([]string{"HOME="})
+		if err != nil {
+			t.Fatalf("an explicitly empty HOME is a proven home, not an unresolvable one: %v", err)
+		}
+		if home != "" {
+			t.Fatalf("primeHomeDir = %q, want an empty home", home)
+		}
+	})
+}
+
+// TestPrimeAgentDirForFollowsAnEmptyHomeToTheChildCwd is the resolver half of
+// the empty-home case: join("", CONFIG_DIR_NAME) is relative on the Node side,
+// so the child opens it under its own working directory.
+func TestPrimeAgentDirForFollowsAnEmptyHomeToTheChildCwd(t *testing.T) {
+	withPrimeGOOS(t, "linux")
+	withPrimeAccountHome(t, "/account/home", nil)
+
+	got, err := primeAgentDirFor([]string{"HOME="}, "/work")
+	if err != nil {
+		t.Fatalf("primeAgentDirFor: %v", err)
+	}
+	if want := filepath.Join("/work", ".prime", "agent"); got != want {
+		t.Fatalf("primeAgentDirFor = %q, want %q", got, want)
 	}
 }
 
@@ -1011,6 +1100,151 @@ func TestPrimeFailsClosedWhenCustomEnvMovesHome(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), agentDir) {
 		t.Fatalf("the refusal must name the settings file under the relocated home: %v", err)
+	}
+}
+
+// TestPrimeFailsClosedWhenTheChildHomeIsEmpty drives the empty-value case end
+// to end.
+//
+// With HOME set and empty, the child's os.homedir() is "" and getAgentDir
+// returns the relative ".prime/agent", which the child opens under its own
+// working directory. A gate that treated the empty value as unset would read
+// the daemon's ~/.prime/agent instead and never see this file — the run would
+// start with subagents re-enabled and Multica would report it complete while
+// they were still working.
+func TestPrimeFailsClosedWhenTheChildHomeIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	agentDir := filepath.Join(cwd, ".prime", "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(`{"rlmMaxDepth": 2}`), 0o600); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+
+	// primeGOOS is left alone: primeHomeEnvKey names whichever variable this
+	// runner actually resolves home from, so the real code path is exercised.
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+		Env:            map[string]string{primeHomeEnvKey(): ""},
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: cwd})
+	if err == nil || !strings.Contains(err.Error(), "rlmMaxDepth") {
+		t.Fatalf("an empty home makes the child's agent dir relative to its cwd; the gate must follow it, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), agentDir) {
+		t.Fatalf("the refusal must name the settings file under the task workdir: %v", err)
+	}
+}
+
+// unsetChildHomeEnv removes the home variable from the daemon's own
+// environment for one test, so buildEnv hands the child an environment that
+// genuinely lacks it. t.Setenv is called first only for its cleanup, which
+// restores whatever the value was — including restoring it as absent.
+//
+// Tests using this cannot be parallel; t.Setenv enforces that.
+func unsetChildHomeEnv(t *testing.T) {
+	t.Helper()
+	key := primeHomeEnvKey()
+	t.Setenv(key, "")
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+}
+
+// TestPrimeFailsClosedWhenTheChildHomeIsAbsent drives the absent-value case
+// end to end. Node falls through to the account database here and reads a real
+// settings.json; Go's os.UserHomeDir fails instead, and the previous resolver
+// turned that failure into an empty directory and skipped the check entirely.
+func TestPrimeFailsClosedWhenTheChildHomeIsAbsent(t *testing.T) {
+	unsetChildHomeEnv(t)
+
+	accountHome := t.TempDir()
+	withPrimeAccountHome(t, accountHome, nil)
+
+	agentDir := filepath.Join(accountHome, ".prime", "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(`{"rlmMaxDepth": 4}`), 0o600); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "rlmMaxDepth") {
+		t.Fatalf("an absent home sends the child to the account database; the gate must follow it, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), agentDir) {
+		t.Fatalf("the refusal must name the settings file under the account home: %v", err)
+	}
+}
+
+// TestPrimeRefusesWhenTheChildHomeCannotBeProven is the fail-closed end of the
+// same path. Neither the environment nor the account database can name the
+// child's home, so the daemon cannot say which settings.json the run would
+// read. Starting anyway would be the original fire-and-forget bug with no
+// evidence either way, so Execute refuses before the executable lookup and
+// says which variable would fix it.
+func TestPrimeRefusesWhenTheChildHomeCannotBeProven(t *testing.T) {
+	unsetChildHomeEnv(t)
+	withPrimeAccountHome(t, "", errors.New("user: Current requires cgo"))
+
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: t.TempDir()})
+	if err == nil {
+		t.Fatal("an unprovable home must refuse the run, not skip the check")
+	}
+	if !strings.Contains(err.Error(), "cannot determine which prime-agent settings.json") {
+		t.Fatalf("the refusal must say the settings file could not be located: %v", err)
+	}
+	if !strings.Contains(err.Error(), primeHomeEnvKey()) {
+		t.Fatalf("the refusal must name the variable that would fix it: %v", err)
+	}
+	if strings.Contains(err.Error(), "executable not found") {
+		t.Fatalf("the gate must run before the executable lookup: %v", err)
+	}
+}
+
+// TestPrimeStillRunsWhenTheProvenHomeHasNoSettings keeps the fail-closed gate
+// from becoming a fail-always one: a home the resolver *can* prove, with no
+// global settings.json under it, must let the run reach the executable lookup.
+func TestPrimeStillRunsWhenTheProvenHomeHasNoSettings(t *testing.T) {
+	unsetChildHomeEnv(t)
+	withPrimeAccountHome(t, t.TempDir(), nil)
+
+	backend, err := New("prime", Config{
+		ExecutablePath: filepath.Join(t.TempDir(), "prime-agent-does-not-exist"),
+		Logger:         testLogger(),
+	})
+	if err != nil {
+		t.Fatalf("new prime backend: %v", err)
+	}
+
+	_, err = backend.Execute(context.Background(), "prompt", ExecOptions{Cwd: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "executable not found") {
+		t.Fatalf("a proven home with no settings.json must not block the run, got: %v", err)
 	}
 }
 

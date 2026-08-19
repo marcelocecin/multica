@@ -235,7 +235,14 @@ func TestPrimeRealACPReadsAgentsMD(t *testing.T) {
 // but happens not to matter for this particular prompt.
 func primeGlobalRlmMaxDepthConfigured(t *testing.T) bool {
 	t.Helper()
-	_, configured := primeGlobalRlmMaxDepth(os.Environ(), "")
+	// An unresolvable home is not "no override configured": the premise this
+	// helper checks cannot be established, so report it as configured and let
+	// the caller skip rather than pass for the wrong reason.
+	_, configured, err := primeGlobalRlmMaxDepth(os.Environ(), "")
+	if err != nil {
+		t.Logf("cannot resolve prime-agent's agent dir: %v", err)
+		return true
+	}
 	return configured
 }
 

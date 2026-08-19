@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -61,15 +63,22 @@ func primeHomeEnvKey() string {
 	return "HOME"
 }
 
-// primeLookupEnv returns the value the child would see for name, or "" when it
-// would see none.
+// primeLookupEnv returns the value the child would see for name and whether
+// the name is present in the child's environment at all.
+//
+// Presence and emptiness are reported separately because the child runtime
+// distinguishes them: getenv("HOME") returning a zero-length string is a hit,
+// not a miss, so libuv reports it as a successful empty read while an absent
+// name becomes UV_ENOENT and sends os.homedir() to the account database. A
+// single "" return value would collapse two directories into one.
 //
 // Later entries win, matching how exec resolves duplicates, and on Windows the
 // comparison is case-insensitive because environment names are: an agent whose
 // custom_env declared "userprofile" still overrides the inherited
 // "USERPROFILE".
-func primeLookupEnv(env []string, name string) string {
+func primeLookupEnv(env []string, name string) (string, bool) {
 	value := ""
+	present := false
 	for _, entry := range env {
 		key, v, ok := strings.Cut(entry, "=")
 		if !ok {
@@ -77,12 +86,43 @@ func primeLookupEnv(env []string, name string) string {
 		}
 		if key == name || (primeGOOS == "windows" && strings.EqualFold(key, name)) {
 			value = v
+			present = true
 		}
 	}
-	return value
+	return value, present
 }
 
-// primeHomeDir resolves the home directory the spawned prime-agent would use.
+// errPrimeHomeUnresolved reports that the home directory the spawned
+// prime-agent would use cannot be determined from here. The gate turns it into
+// a refusal rather than a skipped check: an unknown directory is exactly the
+// case where an unseen global rlmMaxDepth would go unnoticed.
+var errPrimeHomeUnresolved = errors.New("cannot determine the home directory prime-agent would use")
+
+// primeAccountHome resolves the account's home directory without consulting
+// the environment, which is what the child runtime falls back to when the
+// environment names none. It is a variable so tests can drive both the
+// resolved and the unresolvable branch on any host.
+//
+// os/user is the right mirror on both platforms. With cgo it is getpwuid_r,
+// the same call libuv makes through uv__getpwuid_r; on Windows it is
+// GetUserProfileDirectory on the process token, which is libuv's
+// GetUserProfileDirectoryW fallback. The child runs as the same user as the
+// daemon, so the token and the passwd entry are the same ones it would read.
+//
+// os.UserHomeDir is deliberately not used here: it is $HOME/%USERPROFILE% and
+// nothing else, so in this branch — where the child's environment has no such
+// variable — it would answer with the daemon's own value, which is the
+// divergence this whole resolver exists to avoid.
+var primeAccountHome = func() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
+// primeHomeDir resolves the home directory the spawned prime-agent would use,
+// mirroring os.homedir() (libuv's uv_os_homedir) rather than Go's own rules.
 //
 // It must come from the child's environment, not the daemon's: custom_env
 // accepts any key, so an agent can set HOME or USERPROFILE, and the child's
@@ -92,18 +132,33 @@ func primeLookupEnv(env []string, name string) string {
 // override — the same divergence class as the explicitly-empty and relative
 // PRIME_AGENT_CODING_AGENT_DIR cases.
 //
-// An empty value counts as unset on both sides: Go's os.UserHomeDir ignores an
-// empty variable, and libuv falls back to the password database (POSIX) or
-// GetUserProfileDirectoryW (Windows) rather than treating it as a path.
-func primeHomeDir(env []string) string {
-	if home := primeLookupEnv(env, primeHomeEnvKey()); home != "" {
-		return home
+// Present-but-empty and absent are two different directories, and Go's own
+// helper cannot tell them apart:
+//
+//   - Present and empty. uv_os_getenv reads the variable successfully and
+//     returns a zero-length value, so os.homedir() is "". getAgentDir then
+//     evaluates join("", ".prime/agent") — a *relative* path the child
+//     resolves against its own working directory, i.e. opts.Cwd. Go's
+//     os.UserHomeDir treats the same variable as an error, which is why this
+//     case has to be handled before falling back to anything.
+//   - Absent. uv_os_getenv returns UV_ENOENT and libuv falls through to the
+//     account database, giving the real account home. os.UserHomeDir returns
+//     an error here too, so it cannot stand in for that fallback.
+//
+// Returning ("", nil) therefore means a proven empty home, not a failure;
+// failure is errPrimeHomeUnresolved and the caller must fail closed on it.
+func primeHomeDir(env []string) (string, error) {
+	if home, present := primeLookupEnv(env, primeHomeEnvKey()); present {
+		return home, nil
 	}
-	home, err := os.UserHomeDir()
+	home, err := primeAccountHome()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("%w: %v", errPrimeHomeUnresolved, err)
 	}
-	return home
+	if home == "" {
+		return "", errPrimeHomeUnresolved
+	}
+	return home, nil
 }
 
 // primeAgentDirFor resolves the directory the SPAWNED prime-agent would read
@@ -123,31 +178,41 @@ func primeHomeDir(env []string) string {
 //   - a relative value resolves against the child's working directory, which
 //     is opts.Cwd, not wherever the daemon happens to be running.
 //
-// Returns "" when no home directory can be determined and none was configured,
-// which the caller reads as "no global settings to inspect".
-func primeAgentDirFor(env []string, cwd string) string {
-	dir := primeLookupEnv(env, "PRIME_AGENT_CODING_AGENT_DIR")
-	home := primeHomeDir(env)
+// Returns errPrimeHomeUnresolved when the directory depends on a home the
+// resolver cannot prove. That is a refusal, not a skipped check: see
+// primeHomeDir. A proven-empty home is not an error — it makes getAgentDir
+// relative, which this resolves against cwd exactly as the child would.
+func primeAgentDirFor(env []string, cwd string) (string, error) {
+	dir, _ := primeLookupEnv(env, "PRIME_AGENT_CODING_AGENT_DIR")
 	if dir == "" {
-		if home == "" {
-			return ""
+		home, err := primeHomeDir(env)
+		if err != nil {
+			return "", err
 		}
-		return filepath.Join(home, ".prime", "agent")
-	}
-
-	switch {
-	case dir == "~":
-		return home
-	case strings.HasPrefix(dir, "~/"):
-		if home == "" {
-			return ""
+		// filepath.Join drops an empty first element, so a proven-empty home
+		// yields the relative ".prime/agent" that join("", CONFIG_DIR_NAME)
+		// produces on the Node side.
+		dir = filepath.Join(home, ".prime", "agent")
+	} else {
+		switch {
+		case dir == "~":
+			home, err := primeHomeDir(env)
+			if err != nil {
+				return "", err
+			}
+			dir = home
+		case strings.HasPrefix(dir, "~/"):
+			home, err := primeHomeDir(env)
+			if err != nil {
+				return "", err
+			}
+			dir = filepath.Join(home, dir[2:])
 		}
-		dir = filepath.Join(home, dir[2:])
 	}
 	if !filepath.IsAbs(dir) && cwd != "" {
-		return filepath.Join(cwd, dir)
+		return filepath.Join(cwd, dir), nil
 	}
-	return dir
+	return dir, nil
 }
 
 // primeGlobalRlmMaxDepth reports the rlmMaxDepth the spawned prime-agent would
@@ -161,11 +226,19 @@ func primeAgentDirFor(env []string, cwd string) string {
 // Number.MAX_SAFE_INTEGER all make Prime fall through to RLM_MAX_DEPTH, so they
 // report false here too: this must not refuse a run Prime itself would have run
 // with subagents disabled.
-func primeGlobalRlmMaxDepth(env []string, cwd string) (int64, bool) {
-	dir := primeAgentDirFor(env, cwd)
-	if dir == "" {
-		return 0, false
+func primeGlobalRlmMaxDepth(env []string, cwd string) (int64, bool, error) {
+	dir, err := primeAgentDirFor(env, cwd)
+	if err != nil {
+		return 0, false, err
 	}
+	depth, ok := primeGlobalRlmMaxDepthIn(dir)
+	return depth, ok, nil
+}
+
+// primeGlobalRlmMaxDepthIn is primeGlobalRlmMaxDepth once the agent directory
+// is known, so Execute can resolve that directory once and name the same file
+// in the refusal it raises.
+func primeGlobalRlmMaxDepthIn(dir string) (int64, bool) {
 	raw, err := os.ReadFile(filepath.Join(dir, "settings.json"))
 	if err != nil {
 		return 0, false
@@ -300,12 +373,25 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// inspects the same settings.json the child would read rather than an
 	// approximation built from b.cfg.Env alone.
 	childEnv := append(buildEnv(b.cfg.Env), "RLM_MAX_DEPTH=0")
-	if depth, ok := primeGlobalRlmMaxDepth(childEnv, opts.Cwd); ok && depth > 0 {
+	agentDir, err := primeAgentDirFor(childEnv, opts.Cwd)
+	if err != nil {
+		// Fail closed. Skipping the check here would put the run back in the
+		// state this gate exists to prevent, except silently: the child would
+		// still read a global settings.json from a directory the daemon just
+		// admitted it cannot name.
+		return nil, fmt.Errorf(
+			"cannot determine which prime-agent settings.json the task would run against (%w); "+
+				"%s is absent from the agent's environment and the account's home directory could not be read, "+
+				"so a global rlmMaxDepth that re-enables RLM subagents would go unnoticed. "+
+				"Set %s or PRIME_AGENT_CODING_AGENT_DIR in the agent's custom_env to run Prime tasks from Multica",
+			err, primeHomeEnvKey(), primeHomeEnvKey())
+	}
+	if depth, ok := primeGlobalRlmMaxDepthIn(agentDir); ok && depth > 0 {
 		return nil, fmt.Errorf(
 			"prime-agent has a global rlmMaxDepth of %d in %s, which re-enables RLM subagents and outranks the RLM_MAX_DEPTH=0 Multica sets; "+
 				"subagents can outlive the task and Multica would report it complete while they are still running. "+
 				"Set it to 0 (`/rlm-max-depth 0 --global` in prime-agent) or remove the key to run Prime tasks from Multica",
-			depth, filepath.Join(primeAgentDirFor(childEnv, opts.Cwd), "settings.json"))
+			depth, filepath.Join(agentDir, "settings.json"))
 	}
 
 	execPath := b.cfg.ExecutablePath
