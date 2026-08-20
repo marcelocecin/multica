@@ -257,6 +257,7 @@ var concurrentDownIndexCleanups = map[string]string{
 	"303_drop_redundant_lark_chat_session_binding_index":    "idx_lark_chat_session_binding_session",
 	"312_drop_global_plugin_identity_key_index":             "idx_plugin_identity_key",
 	"371_comment_content_search_index_strategy":             "idx_comment_content_trgm",
+	"375_drop_issue_last_activity_index":                    "idx_issue_workspace_last_activity",
 }
 
 var preMigrationHooks = func() map[string]preMigrationHook {

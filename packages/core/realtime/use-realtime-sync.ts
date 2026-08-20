@@ -58,7 +58,6 @@ import {
 } from "../platform/system-notification";
 import type { Workspace } from "../types/workspace";
 import {
-  backfillTaskMessages,
   chatKeys,
   isTaskMessageTimelineHeld,
   mergeTaskMessagesBySeq,
@@ -1345,7 +1344,6 @@ export function useRealtimeSync(
     // The entry can be collected between the two, which is why the flush
     // re-checks rather than trusting the gate — see flushTaskMessages.
     const taskMessageBatches = new Map<string, TaskMessagePayload[]>();
-    const truncatedTaskIds = new Set<string>();
     let taskMessageFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
     const flushTaskMessages = () => {
@@ -1363,7 +1361,6 @@ export function useRealtimeSync(
         // instead costs nothing: the rows are persisted, so the next open
         // fetches the whole timeline.
         if (!isTaskMessageTimelineHeld(qc, taskId)) {
-          truncatedTaskIds.delete(taskId);
           continue;
         }
         qc.setQueryData<TaskMessagePayload[]>(
@@ -1372,21 +1369,6 @@ export function useRealtimeSync(
         );
       }
       taskMessageBatches.clear();
-
-      // A truncated frame carries clipped tool input/output — the full row
-      // lives only in the DB, and `taskMessagesOptions` is staleTime:Infinity,
-      // so nothing would ever replace the clipped copy on its own. Backfill
-      // once per flush, not once per frame: a run writing several large files
-      // in a row would otherwise queue a fetch for each one.
-      for (const taskId of truncatedTaskIds) {
-        void backfillTaskMessages(qc, taskId).catch((err: unknown) => {
-          chatWsLogger.debug("task:message backfill failed", {
-            task_id: taskId,
-            error: err,
-          });
-        });
-      }
-      truncatedTaskIds.clear();
     };
 
     const unsubTaskMessage = ws.on("task:message", (p) => {
@@ -1398,7 +1380,6 @@ export function useRealtimeSync(
       const batch = taskMessageBatches.get(payload.task_id);
       if (batch) batch.push(payload);
       else taskMessageBatches.set(payload.task_id, [payload]);
-      if (payload.truncated) truncatedTaskIds.add(payload.task_id);
 
       // Fixed window, not a resetting debounce: a continuous stream must still
       // flush every TASK_MESSAGE_FLUSH_MS instead of being starved until a gap.

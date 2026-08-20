@@ -192,17 +192,21 @@ on it. These are the contracts, not advice:
   `StartTask` / `CompleteTask` side effects. The runtime brief asks agents to
   write the state the issue is in whenever their work changes it — not from
   the trigger type or the run's lifecycle, and not gated on being the
-  assignee. A turn that advances the issue's own ask sets `in_progress` as
-  soon as that is known, so the board shows the work while it runs; at the
-  end of the turn the work's state is recorded: delivered the issue's own
-  ask → `in_review`; work continues beyond the turn (dispatched sub-issues,
-  partial delivery) → `in_progress`; stuck → `blocked`. A turn that only
-  researched, answered, reviewed, or discussed writes nothing at either
-  moment — a `todo` issue researched on request stays `todo`, and questions,
-  discussion, or acknowledgements never move the status. Squad leaders:
-  dispatching members is not delivery — a dispatch turn leaves the parent
-  `in_progress`, and it moves to `in_review` only when a later re-trigger
-  confirms the overall goal is met.
+  assignee. Writes happen whenever the state changes, mid-turn included: a
+  turn that advances the issue's own ask sets `in_progress` as soon as that
+  is known, so the board shows the work while it runs; a blocker is recorded
+  when it is hit; and the turn must not exit with a stale value — delivered
+  the issue's own ask → `in_review`; work continues beyond the turn
+  (dispatched sub-issues, partial delivery) → `in_progress`; stuck →
+  `blocked`. A turn that produces none of the issue's own deliverable —
+  answering a question, consulting on work owned elsewhere — writes nothing
+  at any point. The kind of activity never decides this: research, design,
+  planning, and review all count as the work exactly when they are what the
+  issue asks for (a review-the-PR issue is being worked the moment reviewing
+  starts). Questions, discussion, or acknowledgements never move the status.
+  Squad leaders: dispatching members is not delivery — a dispatch turn
+  leaves the parent `in_progress`, and it moves to `in_review` only when a
+  later re-trigger confirms the overall goal is met.
 - **`in_review`** is an accepted issue status. Some workflows use it while a PR
   is open and awaiting review; moving to it is an explicit mutation.
 - **`done`** on a child issue posts a system comment on its parent. If a PR

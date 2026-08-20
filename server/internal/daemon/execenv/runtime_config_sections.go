@@ -556,10 +556,33 @@ func writeWorkflowAutopilot(b *strings.Builder, ctx TaskContextForEnv) {
 // an hour — judged only at turn end, the board showed todo the whole time
 // (Bohan's post-merge report on MUL-6417). This is the old rule's timing
 // with the fact anchor's conditionality: an ancillary turn still writes
-// nothing at either moment, so the research case and the concurrency
-// convergence are unchanged. The activity indicator still shows the run
-// itself, but columns, filters, and sorting read status — the indicator
-// alone proved not to be the board surface people actually watch.
+// nothing at either moment, so the concurrency convergence is unchanged.
+// The activity indicator still shows the run itself, but columns, filters,
+// and sorting read status — the indicator alone proved not to be the board
+// surface people actually watch.
+//
+// The start write lives INSIDE step 3, not in the status block below —
+// placement is load-bearing, not style. The first attempt stated it as a
+// bullet under the status heading, and a run on MUL-6460 that verifiably had
+// that brief walked steps 1→2→3 and never wrote a status: at the moment the
+// condition triggers the model is executing the numbered list, and a rule
+// outside the list does not fire (the pre-MUL-6417 opening write was
+// reliable precisely because it was an explicit step). Same incident killed
+// the "asked to research stays todo" example from the no-write bullet: that
+// run's work WAS research toward its own issue's ask, so the example
+// pattern-matched the exact case it was never meant to cover. Ancillary is
+// now defined by output alone — the turn produced none of the issue's own
+// deliverable. No activity-word list survives in EITHER direction: Elon's
+// review on #7295 caught "review" still sitting in a skip-list (the same
+// incident queued to replay on a review-the-PR issue), and J's review
+// caught the positive form-list that replaced it ("code, research, a
+// design, ...") — a whitelist reads as exhaustive, so a triage or
+// reproduce-the-bug turn would not find itself in it. What remains is the
+// criterion plus one never-decides sentence, placed inside step 3 because
+// that is the position that fires. The exit-side check is anchored inside
+// step 5 for the same reason, and the step-3 skip is scoped to the
+// in_progress CATEGORY so a custom status like Planning already counts as
+// recorded once MUL-6460 puts the catalog in front of agents.
 //
 // The invariants MUL-6300 pinned survive as consequences instead of gates: a
 // conversational turn changes nothing about the issue's state, so it writes
@@ -598,24 +621,23 @@ func writeWorkflowIssue(b *strings.Builder, ctx TaskContextForEnv) {
 
 	b.WriteString("1. Read the issue (`multica issue get`) to understand the context — its JSON already carries the issue's `metadata` bag (empty `{}` is normal), so no separate metadata read is needed. What to look for: `## Issue Metadata`.\n")
 	b.WriteString("2. Catch up on the comment history — this is mandatory, not optional — in two bounded reads, never one bulk pull: scan every thread cheaply (`--roots-only --summary --compact`), then expand only the threads that matter (`--thread <id> --tail 30 --compact`). Earlier comments often carry context the issue body lacks. Skipping this step is the most common cause of agents acting on stale or incomplete instructions — so always run the scan, even when the trigger looks self-contained. When a comment triggered this run, the per-turn user message names the thread to expand first; the scan is how you decide whether any OTHER thread is also relevant.\n")
-	b.WriteString("3. Complete the task within your Agent Identity boundaries (`## Instruction Precedence` lists the actions Agent Identity can forbid). If your role is delegation-only, perform the allowed delegation work and stop once that outcome is delivered. Before self-assigning, check the target issue's comment history for an existing claim and any `## Active sibling runs` block; when assignment or status only records ownership/progress for work already underway, pass `--no-start` on every such command (the default start behavior is for handing off fresh work).\n")
+	b.WriteString("3. If any part of what this turn will produce is what the issue itself asks for, set `in_progress` FIRST (skip when the issue is already in an `in_progress`-category status, or when your Agent Identity forbids status writes): the board should show the issue being worked while you work, not only after. The kind of activity — research, design, planning, review — never decides this; only whether the output is part of THIS issue's ask. Then complete the task within your Agent Identity boundaries (`## Instruction Precedence` lists the actions Agent Identity can forbid). If your role is delegation-only, perform the allowed delegation work and stop once that outcome is delivered. Before self-assigning, check the target issue's comment history for an existing claim and any `## Active sibling runs` block; when assignment or status only records ownership/progress for work already underway, pass `--no-start` on every such command (the default start behavior is for handing off fresh work).\n")
 	if ctx.IsSquadLeader {
 		b.WriteString("4. **Post your final results as a comment** (unless your outcome is `no_action` — in that case, calling `multica squad activity <issue-id> no_action --reason \"...\"` alone is sufficient; you MUST exit without posting any comment. DO NOT post a comment announcing no_action or saying you are exiting silently): post it with `multica issue comment add` using the platform-correct non-inline mode from ## Comment Formatting (never inline `--content`). When the per-turn user message carries a triggering comment, reply in its thread with the `--parent` value it gives you for THIS turn (never one from an earlier turn); when it lists several threads, post one reply per thread. With no triggering comment, post a new top-level comment. Your results are only visible to the user if posted via this CLI call; text in your terminal or run logs is NOT delivered.\n")
 	} else {
 		b.WriteString("4. **Post your final results as a comment — this step is mandatory**: post it with `multica issue comment add` using the platform-correct non-inline mode from ## Comment Formatting (never inline `--content`). When the per-turn user message carries a triggering comment, reply in its thread with the `--parent` value it gives you for THIS turn (never one from an earlier turn); when it lists several threads, post one reply per thread. With no triggering comment, post a new top-level comment. `## Output` states why this call is the only delivery channel.\n")
 	}
-	b.WriteString("5. Before exiting, pin or clear a metadata key via `multica issue metadata set`/`delete` only if it clears the bar in `## Issue Metadata`. Most runs write nothing here — that is the expected outcome, not a gap. When in doubt, do not write.\n\n")
+	b.WriteString("5. Before exiting, confirm the status still matches where things actually stand, then pin or clear a metadata key via `multica issue metadata set`/`delete` only if it clears the bar in `## Issue Metadata`. Most runs write no metadata — that is the expected outcome, not a gap. When in doubt, do not write.\n\n")
 
 	b.WriteString("**Issue status — write the state the issue is in, whenever it changes** (skip any status call your Agent Identity forbids)\n\n")
-	b.WriteString("Status reflects the state the ISSUE is in, not your run's lifecycle — and it can change when your work STARTS, not only when it ends. Write a status only when the new value differs from the current one, whoever the assignee is:\n\n")
-	b.WriteString("- The moment you know this turn advances what the issue itself asks for — usually right after reading it — set `in_progress`: the board should show the issue being worked while you work, not only after.\n")
+	b.WriteString("Status reflects the state the ISSUE is in, not your run's lifecycle — keep it true at every point in the turn, not only at checkpoints: write the new value the moment your work changes it, mid-turn included. Write only when the new value differs from the current one, whoever the assignee is:\n\n")
 	b.WriteString("- You delivered what the issue itself asks for and it awaits acceptance → `in_review`. Delivering an issue assigned to you — including a sub-issue in a chain or stage — always lands here; stage barriers and parent notifications depend on that signal. `done` stays human.\n")
 	b.WriteString("- The issue's work continues beyond this turn — you dispatched sub-issues, or delivered one part with more underway → `in_progress`.\n")
 	b.WriteString("- You cannot proceed without something you are missing → `blocked`, and post a comment explaining the blocker unless your Agent Identity forbids issue comments.\n")
 	if ctx.IsSquadLeader {
 		b.WriteString("- Squad leader: dispatching members is not delivery — a dispatch turn leaves the parent `in_progress`, and it moves to `in_review` only on the later turn (a member update or stage-barrier re-trigger) where you confirm the overall goal is met.\n")
 	}
-	b.WriteString("- Your turn only researches, answers, reviews, or discusses — the issue's own state never moves → write nothing, at the start or the end. A `todo` issue you were asked to research stays `todo`; questions, discussion, and acknowledgements never touch status. This no-write default is what keeps concurrent runs from flapping the board.\n\n")
+	b.WriteString("- Your turn produced none of the issue's own deliverable — you answered a question or consulted on work owned elsewhere → write nothing, at any point; questions, discussion, and acknowledgements never touch status. This no-write default is what keeps concurrent runs from flapping the board.\n\n")
 }
 
 // writeSubIssueCreation emits the Sub-issue Creation section.

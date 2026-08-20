@@ -54,7 +54,7 @@ Every workspace starts with seven built-in statuses. They are also the seven **c
 
 There is no fixed flow between statuses — members and agents can change them directly.
 
-Agents write the status the issue is in as their work changes it: starting work on what the issue asks for moves it to `in_progress` right away, so the board shows the work while it runs; delivering moves it to `in_review`; work that continues beyond the turn keeps it `in_progress`; research, answers, or discussion leave the status untouched throughout. These updates are written explicitly by the agent through the Multica CLI during the run — the server does not flip issue status when a task starts or completes (apart from the two system exceptions below). `done` is usually a human confirmation, or an integration such as a PR with close intent that merges.
+Agents write the status the issue is in as their work changes it: starting work on what the issue asks for — in whatever form, research, design, or a review the issue itself requests — moves it to `in_progress` right away, so the board shows the work while it runs; delivering moves it to `in_review`; work that continues beyond the turn keeps it `in_progress`; a turn that produces nothing of the issue's own deliverable — answering questions, consulting on work owned elsewhere — leaves the status untouched throughout. These updates are written explicitly by the agent through the Multica CLI during the run — the server does not flip issue status when a task starts or completes (apart from the two system exceptions below). `done` is usually a human confirmation, or an integration such as a PR with close intent that merges.
 
 <Callout type="info">
 Two changes are made by the system:

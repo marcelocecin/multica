@@ -102,6 +102,9 @@ jobs:
               - 'scripts/helm-config.test.sh'
               - 'scripts/test-go.sh'
               - 'scripts/test-go.test.sh'
+              # makefile-build.test.sh asserts how `make build` names its
+              # output binaries, so a change to either side must run it.
+              - 'scripts/makefile-build.test.sh'
               - 'Makefile'
               - '.github/workflows/ci.yml'
             sqlc:
@@ -498,6 +501,10 @@ jobs:
       - name: Test Helm chart
         if: ${{ needs.changes.outputs.backend == 'true' }}
         run: bash scripts/helm-config.test.sh
+
+      - name: Test build output naming
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+        run: bash scripts/makefile-build.test.sh
 
       - name: Build
         if: ${{ needs.changes.outputs.backend == 'true' }}
