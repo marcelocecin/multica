@@ -392,7 +392,17 @@
       "unknown": "Unrecognized access — do not install"
     },
     "hook_circuit_open": "Hook delivery has stopped after repeated failures.",
-    "hook_recent_failures": "{{count}} recent hook calls failed."
+    "hook_recent_failures": "{{count}} recent hook calls failed.",
+    "mcp": {
+      "badge": "MCP",
+      "description": "This hook adopts tools from the Plugin author's own MCP server. Approve the ones agents may call — a tool that appears later is not adopted until you approve it.",
+      "loading": "Loading tools",
+      "unreachable": "Could not reach the Plugin's MCP server.",
+      "empty": "This MCP server currently offers no tools.",
+      "drifted": "Schema changed",
+      "save": "Save approvals",
+      "approved": "Approved tools updated."
+    }
   },
   "properties": {
     "title": "Properties",

@@ -1303,6 +1303,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/workspaces/{workspaceId}/repos", h.GetDaemonWorkspaceRepos)
 		r.Get("/workspaces/{workspaceId}/runtime-profiles", h.DaemonListRuntimeProfiles)
 
+		// Agent-triggered plugin hooks. The daemon's local MCP server calls
+		// this when an agent picks one of its tools; the server makes the
+		// signed request so the daemon never holds the signing secret.
+		r.Post("/tasks/{id}/plugin-hooks", h.InvokeAgentPluginHook)
+		// The broker asks for an mcp hook's credential at connection time, so
+		// a secret never sits in a task record.
+		r.Get("/tasks/{id}/plugin-mcp/{contributionId}/credential", h.ResolvePluginMCPCredential)
+
 		r.Post("/runtimes/{runtimeId}/tasks/claim", h.ClaimTaskByRuntime)
 		// Canonical machine-level batch claim (MUL-4257). `/claim` is a
 		// transitional alias; the daemon coordinator targets the canonical
@@ -1491,6 +1499,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/plugins/{installationId}/invocations", h.ListPluginInvocations)
 					r.Post("/plugins/{installationId}/token", h.RotatePluginToken)
 					r.Delete("/plugins/{installationId}/token", h.RevokePluginToken)
+					// mcp-transport approval. Discovery adopts nothing; the PUT
+					// is the grant, and it pins the tools by schema digest.
+					r.Get("/plugins/{installationId}/mcp/{hookKey}/tools", h.ListPluginMCPTools)
+					r.Put("/plugins/{installationId}/mcp/{hookKey}/tools", h.ApprovePluginMCPTools)
 					r.Put("/plugins/{installationId}/config", h.ConfigurePlugin)
 					r.Post("/plugins/{installationId}/enable", h.EnablePlugin)
 					r.Post("/plugins/{installationId}/disable", h.DisablePlugin)

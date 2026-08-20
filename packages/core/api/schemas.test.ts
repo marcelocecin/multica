@@ -56,6 +56,7 @@ import {
   UserSchema,
   PluginInstallationSchema,
   PluginInstallationListResponseSchema,
+  PluginMCPToolListSchema,
   PluginPreviewSchema,
   EMPTY_PLUGIN_INSTALLATION_LIST,
   EMPTY_PLUGIN_PREVIEW,
@@ -405,6 +406,43 @@ describe("AgentTaskListSchema", () => {
       "comment-2",
       "comment-3",
     ]);
+  });
+
+  it("accepts durable workdir metadata from newer backends", () => {
+    const parsed = AgentTaskListSchema.parse([
+      {
+        ...task,
+        status: "completed",
+        work_dir: "/managed/task/worktree",
+        durable_work_dir: "/Users/dev/project",
+        relative_durable_work_dir: "project",
+        branch_name: "agent/j/abc12345",
+      },
+    ]);
+
+    expect(parsed[0]).toMatchObject({
+      durable_work_dir: "/Users/dev/project",
+      relative_durable_work_dir: "project",
+      branch_name: "agent/j/abc12345",
+    });
+  });
+
+  it("degrades malformed optional path metadata without dropping task rows", () => {
+    const parsed = AgentTaskListSchema.parse([
+      {
+        ...task,
+        work_dir: 1,
+        durable_work_dir: { path: "/project" },
+        relative_durable_work_dir: false,
+        branch_name: ["agent/j/abc12345"],
+      },
+    ]);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.work_dir).toBeUndefined();
+    expect(parsed[0]?.durable_work_dir).toBeUndefined();
+    expect(parsed[0]?.relative_durable_work_dir).toBeUndefined();
+    expect(parsed[0]?.branch_name).toBeUndefined();
   });
 });
 
@@ -1567,6 +1605,22 @@ describe("Plugin schemas", () => {
     });
     expect(parsed).toEqual(EMPTY_PLUGIN_PREVIEW);
     expect(parsed.scopes).toEqual([]);
+  });
+
+  it("degrades a malformed MCP tool list to empty rather than showing tools as approved", () => {
+    const parsed = parseWithFallback({ tools: "search" }, PluginMCPToolListSchema, { tools: [] }, {
+      endpoint: "GET /api/workspaces/{id}/plugins/{installationId}/mcp/{hookKey}/tools",
+    });
+    expect(parsed.tools).toEqual([]);
+  });
+
+  // The dangerous direction is one-sided: a response missing `approved` must
+  // read as NOT approved. The opposite default would render an unpinned tool
+  // with a checked box, and the administrator's next save would pin it.
+  it("treats a tool with no approval field as unapproved", () => {
+    const parsed = PluginMCPToolListSchema.parse({ tools: [{ name: "search" }] });
+    expect(parsed.tools[0]?.approved).toBe(false);
+    expect(parsed.tools[0]?.drifted).toBe(false);
   });
 
   it("parses a preview that reports an upgrade adding new scopes", () => {

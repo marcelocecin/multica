@@ -392,7 +392,17 @@
       "unknown": "无法识别的权限 — 请勿安装"
     },
     "hook_circuit_open": "连续失败后已停止投递该 hook。",
-    "hook_recent_failures": "最近有 {{count}} 次 hook 调用失败。"
+    "hook_recent_failures": "最近有 {{count}} 次 hook 调用失败。",
+    "mcp": {
+      "badge": "MCP",
+      "description": "该 hook 采用插件作者自己的 MCP server 提供的工具。勾选允许 agent 调用的工具——之后新出现的工具不会自动生效，需要你再次批准。",
+      "loading": "正在加载工具",
+      "unreachable": "无法连接插件的 MCP server。",
+      "empty": "该 MCP server 当前没有提供任何工具。",
+      "drifted": "schema 已变更",
+      "save": "保存批准",
+      "approved": "已更新批准的工具。"
+    }
   },
   "properties": {
     "title": "属性",

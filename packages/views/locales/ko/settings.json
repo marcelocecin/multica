@@ -392,7 +392,17 @@
       "unknown": "알 수 없는 권한 — 설치하지 마세요"
     },
     "hook_circuit_open": "반복 실패로 훅 전달이 중단되었습니다.",
-    "hook_recent_failures": "최근 훅 호출 {{count}}건이 실패했습니다."
+    "hook_recent_failures": "최근 훅 호출 {{count}}건이 실패했습니다.",
+    "mcp": {
+      "badge": "MCP",
+      "description": "이 훅은 플러그인 작성자의 MCP 서버가 제공하는 도구를 채택합니다. 에이전트가 호출할 수 있는 도구를 승인하세요. 나중에 추가된 도구는 승인하기 전까지 채택되지 않습니다.",
+      "loading": "도구를 불러오는 중",
+      "unreachable": "플러그인의 MCP 서버에 연결할 수 없습니다.",
+      "empty": "이 MCP 서버는 현재 제공하는 도구가 없습니다.",
+      "drifted": "스키마가 변경됨",
+      "save": "승인 저장",
+      "approved": "승인된 도구를 업데이트했습니다."
+    }
   },
   "properties": {
     "title": "속성",

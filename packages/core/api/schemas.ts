@@ -202,6 +202,25 @@ export const PluginTokenIssueSchema = z.object({
   signing_secret: z.string().default(""),
 }).loose();
 
+/**
+ * Discovered tools for one `mcp`-transport hook.
+ *
+ * Defaults matter here in the usual direction: an unparseable response yields
+ * an EMPTY list and nothing approved, so a drifted backend cannot make the UI
+ * render a tool as already-approved.
+ */
+export const PluginMCPToolSchema = z.object({
+  name: z.string().default(""),
+  description: z.string().default(""),
+  schema_digest: z.string().default(""),
+  approved: z.boolean().default(false),
+  drifted: z.boolean().default(false),
+}).loose();
+
+export const PluginMCPToolListSchema = z.object({
+  tools: z.array(PluginMCPToolSchema).default([]),
+}).loose();
+
 export const PluginManifestSummarySchema = z.object({
   key: z.string().default(""),
   name: z.string().default(""),
@@ -1521,8 +1540,11 @@ export const AgentTaskSchema = z.object({
   trigger_summary: z.string().optional(),
   handoff_note: z.string().optional(),
   kind: z.string().optional(),
-  work_dir: z.string().optional(),
-  relative_work_dir: z.string().optional(),
+  work_dir: z.string().optional().catch(undefined),
+  relative_work_dir: z.string().optional().catch(undefined),
+  durable_work_dir: z.string().optional().catch(undefined),
+  relative_durable_work_dir: z.string().optional().catch(undefined),
+  branch_name: z.string().optional().catch(undefined),
   attribution: TaskAttributionSchema.optional(),
   // Per-run token usage. Same independent-degradation rule as the coverage
   // arrays above: usage is additive display metadata, so one malformed entry

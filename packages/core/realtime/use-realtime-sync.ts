@@ -16,6 +16,7 @@ import { autopilotKeys } from "../autopilots/queries";
 import { runtimeKeys } from "../runtimes/queries";
 import { labelKeys } from "../labels/queries";
 import { propertyKeys } from "../properties/queries";
+import { issueStatusKeys } from "../issue-statuses/queries";
 import {
   agentTaskSnapshotKeys,
   workspaceWorkingAgentsKeys,
@@ -658,6 +659,10 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
     qc.invalidateQueries({ queryKey: chatKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: labelKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: propertyKeys.all(wsId) });
+    // A catalog edit missed while disconnected would otherwise sit behind the
+    // 5-minute staleTime — long enough to offer a status the server already
+    // archived, or to keep painting its old name.
+    qc.invalidateQueries({ queryKey: issueStatusKeys.all(wsId) });
   }
   // Cross-workspace, so outside the wsId guard: a reconnect may have missed
   // inbox events from any workspace, so re-pull the switcher-dot summary.
@@ -809,6 +814,20 @@ export function useRealtimeSync(
           qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
           qc.invalidateQueries({ queryKey: workspaceKeys.skills(wsId) });
         }
+      },
+      // The issue status catalog (MUL-6243). An admin edits it in the settings
+      // page; every other tab and device is rendering statuses out of it.
+      //
+      // Invalidate only — the event carries no entry to merge. Issue caches are
+      // deliberately NOT dragged along: a row stores the status KEY, and its
+      // name, color and category are resolved from this catalog at render time
+      // (`useStatusLabel`, `colorOf`), so refetching the catalog is what makes a
+      // rename repaint. Pulling every board and list with it would turn one
+      // admin rename into a workspace-wide refetch storm on every connected
+      // client. (MUL-6458)
+      issue_status: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: issueStatusKeys.all(wsId) });
       },
       pin: () => {
         const wsId = getCurrentWsId();

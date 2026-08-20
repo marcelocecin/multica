@@ -101,6 +101,7 @@ export type {
   PluginConfigRequest,
   PluginHookResult,
   PluginInvocation,
+  PluginMCPTool,
   PluginTokenIssue,
 } from "./plugin";
 export type { InboxItem, InboxSeverity, InboxItemType, InboxWorkspaceUnread } from "./inbox";
