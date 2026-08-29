@@ -12,7 +12,9 @@
 -- versions out of order (see internal/migrations.AllVersions), so a prefix
 -- below 403 would run *after* zeroclaw on any database that already applied
 -- it, and this rewritten CHECK would silently revoke the zeroclaw family.
--- 440 is above every version currently on main.
+-- 441 is above every version currently on main: 440 was free when this was
+-- last renumbered, and v0.4.36 has since taken it for
+-- 440_github_pr_head_sha_index (#7695).
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
