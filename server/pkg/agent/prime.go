@@ -328,7 +328,13 @@ func primeTeardownGrace() time.Duration {
 //
 // Notable contract with Prime Agent v0.7.1 (verified against
 // https://github.com/PrimeIntellect-ai/prime-agent/tree/v0.7.1 — links below
-// point at specific files/lines on that tag):
+// point at specific files/lines on that tag).
+//
+// Re-checked against v0.9.1, upstream's newest release: loadSession, the
+// single-session-per-connection model, getAgentDir, ENV_AGENT_DIR,
+// CONFIG_DIR_NAME and _resolveRlmMaxDepth are all unchanged, so everything
+// this backend and the fail-closed rlmMaxDepth gate rely on holds across the
+// whole 0.7.1-0.9.1 range. Only the mcpServers handling noted below differs:
 //   - `initialize` reports `agentCapabilities.loadSession: false` and there
 //     is no `session/resume`/`session/load` method on the wire at all — Prime
 //     hosts exactly one session per ACP connection. Execute therefore never
@@ -341,15 +347,20 @@ func primeTeardownGrace() time.Duration {
 //     reported back informationally in `_meta`. Setting cmd.Dir = opts.Cwd
 //     (as every backend already does) keeps the two in sync, so no mismatch
 //     is expected in normal operation. Same file as above.
-//   - Prime never reads `session/new`'s `mcpServers` content or a model field
-//     on `session/new`/`session/prompt` — MCP injection and per-session model
-//     selection are Phase-1 non-goals for this provider (see
+//   - Prime reads no model field on `session/new`/`session/prompt`, and MCP
+//     injection is a Phase-1 non-goal for this provider (see
 //     ModelSelectionSupported and packages/core/agents/mcp-support.ts on the
 //     frontend). Execute does send an mcpServers key on session/new, but only
 //     ever as an empty array: a live smoke test against the real binary
-//     showed the ACP SDK's request schema requires the field to be present
-//     even though Prime's handler ignores its contents, so this is a
-//     required-field workaround, never a channel for opts.McpConfig.
+//     showed the ACP SDK's request schema requires the field to be present,
+//     so this is a required-field workaround, never a channel for
+//     opts.McpConfig. The empty array is a contract, not an incidental
+//     detail. v0.7.1 ignored the field's contents outright, but from v0.8
+//     the handler reads it and answers a non-empty list with `invalidParams`
+//     ("MCP servers are unavailable in this ACP host") unless the connection
+//     supports MCP, and v0.9.1 advertises `mcpCapabilities: {http: true}`
+//     when it does. Sending an empty array is what keeps this backend on one
+//     path across every version the MinVersions floor admits.
 //   - Prime has no tool-permission-gating RPC (no `session/request_permission`
 //     observed anywhere in its source) — tools always auto-execute, so unlike
 //     Hermes this needs no YOLO-mode-equivalent env var.
