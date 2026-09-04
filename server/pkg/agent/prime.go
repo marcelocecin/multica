@@ -576,13 +576,27 @@ func (b *primeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	// this is exactly cmd.Start: the process group was already configured
 	// before the process existed.
 	//
-	// Owning the tree is safe for this backend specifically because ACP mode
-	// never spawns Prime's machine-wide daemon supervisor: the daemon is only
-	// started via ensureInteractiveDaemonRunning, which the ACP path never
-	// reaches (shouldEnsureInteractiveDaemonForStartup requires interactive
-	// mode), and DaemonClient.connect only dials an existing socket. A
-	// supervisor a member started separately is therefore not a descendant of
-	// this process and never joins this job.
+	// Owning the tree is safe for this backend, but not because ACP mode
+	// leaves Prime's machine-wide daemon supervisor alone — it does start one.
+	// shouldUseDaemonClient is `appMode != "daemon" && ...`, so `--mode acp`
+	// takes the daemon-client branch, and shouldEnsureInteractiveDaemonForStartup
+	// — despite naming its first parameter useDaemonInteractive — is called with
+	// useDaemonClient, which is true here. ensureInteractiveDaemonRunning
+	// therefore does run on this path (packages/coding-agent/src/main.ts;
+	// unchanged across prime-agent v0.7.1 and v0.9.1).
+	//
+	// What makes the job safe is the detach, not the absence of a supervisor:
+	// it is spawned `{detached: true}` and unref'd (cli/daemon-launch.ts), so it
+	// is reparented away and is never a descendant of this process. It cannot
+	// join this job, and nothing signalled here can reach it.
+	//
+	// That same fact is this backend's known limitation rather than a guarantee:
+	// the supervisor, its workers and their IPython kernels outlive teardown,
+	// and prime-agent exposes no per-caller stop — `shutdown` is documented as
+	// "Stop every agent and background service" and takes no socket, and the
+	// `daemon` subcommand that does accept `--socket` sits in
+	// REMOVED_COMMAND_NAMES. See the stdin-EOF ordering in the teardown
+	// goroutine below, which is what limits the exposure today.
 	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start prime-agent: %w", err)
