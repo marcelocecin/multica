@@ -472,7 +472,21 @@ type AgentTaskResponse struct {
 	// the same zero. Only the first of those answers "has anything else been
 	// said on this issue", so only the first may waive the workflow's comment
 	// scan. Absent on old servers, which is the safe reading (MUL-6984).
-	NewCommentsDeltaKnown    bool                 `json:"new_comments_delta_known,omitempty"`
+	NewCommentsDeltaKnown bool `json:"new_comments_delta_known,omitempty"`
+	// IssueStateDeltaKnown is the same contract as NewCommentsDeltaKnown, for
+	// the ISSUE record rather than its comments: the server compared this
+	// claim's title / description against the
+	// snapshot taken when this agent last ran on this issue, and both the
+	// lookup and the decode succeeded. Absent means NOT compared — a cold
+	// start, no prior snapshot, a read error, a shape-version mismatch, or an
+	// old server — and a daemon must then keep telling the agent to read the
+	// issue. An empty IssueChangedFields is only "unchanged" alongside this
+	// flag; on its own it is indistinguishable from "nobody looked" (MUL-7344).
+	IssueStateDeltaKnown     bool                 `json:"issue_state_delta_known,omitempty"`
+	IssueChangedFields       []string             `json:"issue_changed_fields,omitempty"`        // subset of title,description in that order; empty alongside IssueStateDeltaKnown means unchanged. Fields outside that set (status, assignee, priority, labels, parent, due date, stage, project, metadata) are NOT compared and must never be reported as checked. Status and assignee are out because IssueStatus / IssueAssigneeType / IssueAssigneeID ship their current values on every claim, so no comparison is needed to learn them; priority is out because it does not change what the agent does
+	IssueStatus              string               `json:"issue_status,omitempty"`                // the issue's status key at claim time. Sent whether or not the delta is known: the agent needs it to decide workflow step 3 ("already in progress?") without a read
+	IssueAssigneeType        string               `json:"issue_assignee_type,omitempty"`         // "agent", "member" or "squad" at claim time; empty when unassigned. With IssueAssigneeID, lets the agent tell "mine" from "someone else's" without a read
+	IssueAssigneeID          string               `json:"issue_assignee_id,omitempty"`           // assignee UUID at claim time; empty when unassigned
 	ChatSessionID            string               `json:"chat_session_id,omitempty"`             // non-empty for chat tasks
 	ChatChannelType          string               `json:"chat_channel_type,omitempty"`           // "slack" when the chat session is backed by an IM channel; empty for a web-only chat. Makes the agent channel-aware (read history from the channel, not Multica)
 	ChatChannelDeliversFiles bool                 `json:"chat_channel_delivers_files,omitempty"` // server capability: THIS deployment can put a file the agent produced into THIS conversation — the adapter goes back for the bound attachment AND object storage exists to go back to. Absent/false on a server predating it, which is the safe reading: the agent is told to describe its file in words. Never inferred daemon-side from chat_channel_type; see handler.Handler.channelDeliversFiles
@@ -1456,6 +1470,15 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// An effort with no pinned model is not storable for runtimes that resolve
+	// their own default model out of sight — it would save cleanly, show as set,
+	// and then run at a different level. Reject it here instead of letting the
+	// daemon drop it silently at launch (MUL-7412).
+	if agent.ThinkingLevelRejectedWithoutModel(runtime.Provider) &&
+		req.ThinkingLevel != "" && strings.TrimSpace(req.Model) == "" {
+		writeError(w, http.StatusBadRequest, thinkingNeedsExplicitModelRejection(runtime.Provider))
+		return
+	}
 	if !agent.IsKnownServiceTier(runtime.Provider, req.ServiceTier) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("service_tier %q is not a recognised value for runtime %q", req.ServiceTier, runtime.Provider))
 		return
@@ -2100,6 +2123,28 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Same combination check as CreateAgent, but against the state the request
+	// actually lands on: a cleared model with a carried-over effort, or a new
+	// effort on an agent that never had a model, are both the invalid pair. The
+	// caller can always recover by pinning a model or clearing the level, so
+	// this cannot lock an agent out of editing (MUL-7412).
+	if effectiveThinking := effectiveThinkingLevel(params, existing, shouldClearThinkingLevel); effectiveThinking != "" &&
+		strings.TrimSpace(effectiveModelValue(params, existing)) == "" {
+		provider := targetProvider
+		if provider == "" {
+			var ok bool
+			provider, ok = h.resolveAgentProvider(r, existing.WorkspaceID, targetRuntimeID)
+			if !ok {
+				writeError(w, http.StatusInternalServerError, "failed to resolve runtime for thinking_level validation")
+				return
+			}
+		}
+		if agent.ThinkingLevelRejectedWithoutModel(provider) {
+			writeError(w, http.StatusBadRequest, thinkingNeedsExplicitModelRejection(provider))
+			return
+		}
+	}
+
 	shouldClearServiceTier := false
 	if req.ServiceTier != nil {
 		value := *req.ServiceTier
@@ -2317,6 +2362,42 @@ func (h *Handler) resolveAgentProvider(r *http.Request, workspaceID pgtype.UUID,
 		return "", false
 	}
 	return rt.Provider, true
+}
+
+// thinkingNeedsExplicitModelRejection is the copy for a level that is valid for
+// the runtime but cannot be stored without a model. It names both ways out so
+// the caller does not have to guess that clearing is allowed.
+func thinkingNeedsExplicitModelRejection(provider string) string {
+	return fmt.Sprintf(
+		"runtime %q resolves its own default model, so a reasoning effort needs an explicit model; set model or pass thinking_level=\"\" to clear",
+		provider,
+	)
+}
+
+// effectiveModelValue is the model the update lands on: the requested value
+// when this request sets one (including an explicit clear), otherwise what the
+// agent already holds.
+func effectiveModelValue(params db.UpdateAgentParams, existing db.Agent) string {
+	if params.Model.Valid {
+		return params.Model.String
+	}
+	return existing.Model.String
+}
+
+// effectiveThinkingLevel is the effort the update lands on. An explicit clear
+// wins over everything; otherwise a value set by this request wins over the
+// stored one, which is carried when the field was omitted.
+func effectiveThinkingLevel(params db.UpdateAgentParams, existing db.Agent, cleared bool) string {
+	if cleared {
+		return ""
+	}
+	if params.ThinkingLevel.Valid {
+		return params.ThinkingLevel.String
+	}
+	if existing.ThinkingLevel.Valid {
+		return existing.ThinkingLevel.String
+	}
+	return ""
 }
 
 // thinkingLevelRejection explains why the target runtime will not take this

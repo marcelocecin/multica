@@ -2944,8 +2944,8 @@ export function createJaDict(allowSignup: boolean): LandingDict {
       title: "Multica について",
       nameLine: {
         prefix: "Multica — ",
-        mul: "Mul",
-        tiplexed: "tiplexed ",
+        mult: "Mult",
+        iplexed: "iplexed ",
         i: "I",
         nformationAnd: "nformation and ",
         c: "C",

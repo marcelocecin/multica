@@ -386,7 +386,6 @@
     "quick_action_blocked_body": "« {{name}} » s'exécute sous un agent que vous n'êtes pas autorisé à déclencher. Demandez à un administrateur de l'espace de travail de rendre cet agent accessible à l'équipe, ou de rattacher cette action à un agent partagé.",
     "quick_action_blocked_ok": "Compris",
     "pull_requests_loading": "Chargement…",
-    "pull_requests_empty": "Aucune pull request associée pour l'instant. Insérez l'identifiant de cette tâche dans le nom de branche ou le titre d'une PR, ou après Closes dans sa description, pour l'associer automatiquement.",
     "pull_request_state_open": "Ouverte",
     "pull_request_state_draft": "Brouillon",
     "pull_request_state_merged": "Fusionnée",
@@ -459,8 +458,7 @@
     "project_directory_path_copied_with_branch": "Chemin du répertoire du projet copié — le travail se trouve sur {{branch}}",
     "workdir_path_copy_failed": "Échec de la copie du chemin du répertoire de travail",
     "workdir_path_unavailable": "Aucun répertoire de travail local — cette tâche n'a pas encore été traitée par un agent local",
-    "pull_requests_empty_title": "Aucune pull request associée.",
-    "pull_requests_help": "Comment associer une PR"
+    "pull_requests_empty_title": "Aucune pull request associée."
   },
   "timeline": {
     "loading": "Chargement..."

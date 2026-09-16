@@ -264,8 +264,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     title: "About Multica",
     nameLine: {
       prefix: "Multica \u2014 ",
-      mul: "Mul",
-      tiplexed: "tiplexed ",
+      mult: "Mult",
+      iplexed: "iplexed ",
       i: "I",
       nformationAnd: "nformation and ",
       c: "C",

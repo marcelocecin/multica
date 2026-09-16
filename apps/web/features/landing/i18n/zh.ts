@@ -264,8 +264,8 @@ export function createZhDict(allowSignup: boolean): LandingDict {
     title: "\u5173\u4e8e Multica",
     nameLine: {
       prefix: "Multica\u2014\u2014",
-      mul: "Mul",
-      tiplexed: "tiplexed ",
+      mult: "Mult",
+      iplexed: "iplexed ",
       i: "I",
       nformationAnd: "nformation and ",
       c: "C",

@@ -30,6 +30,7 @@
     "open_in_new_tab": "Ouvrir dans un nouvel onglet"
   },
   "list": {
+    "loading_selection": "Chargement de la notification…",
     "empty": "Aucune notification",
     "mark_done_tooltip": "Marquer comme traité",
     "archive_tooltip": "Archiver",
@@ -42,7 +43,10 @@
     "archived_title": "Archivées",
     "archived_empty": "Aucune notification archivée",
     "unarchive_tooltip": "Désarchiver",
-    "actions_aria": "Actions de notification"
+    "actions_aria": "Actions de notification",
+    "load_more": "Charger plus",
+    "loading_more": "Chargement…",
+    "retry": "Réessayer"
   },
   "detail": {
     "select_prompt": "Sélectionnez une notification pour afficher les détails",
@@ -98,6 +102,7 @@
     "unarchived": "Notification restaurée"
   },
   "errors": {
+    "archived_lookup_failed": "Échec du chargement de la notification liée",
     "source_context_retry_failed": "Impossible de réessayer avec le contexte d'origine",
     "source_context_retry_unavailable": "Ce contexte ne peut plus être réutilisé pour une nouvelle tentative. Recommencez depuis le point de branchement.",
     "mark_read_failed": "Échec du marquage comme lu",
@@ -109,6 +114,7 @@
     "archive_all_read_failed": "Échec de l'archivage des éléments lus",
     "archive_completed_failed": "Échec de l'archivage des éléments terminés",
     "unarchive_failed": "Échec du désarchivage",
-    "archived_load_failed": "Échec du chargement des notifications archivées"
+    "archived_load_failed": "Échec du chargement des notifications archivées",
+    "filters_load_failed": "Impossible de charger les filtres"
   }
 }

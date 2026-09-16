@@ -128,6 +128,15 @@ describe("Integration directory", () => {
     ).toBe(true);
   });
   it("hides Composio when the server reports it unconfigured", () => {
+    state.error = new ApiError("unavailable", 403, "Forbidden", {
+      code: "composio_not_configured",
+    });
+    renderWithI18n(<IntegrationsTab />);
+    expect(
+      screen.queryByRole("link", { name: /Composio/ }),
+    ).not.toBeInTheDocument();
+  });
+  it("keeps hiding Composio when an older server reports 503", () => {
     state.error = new ApiError("unavailable", 503, "Service Unavailable");
     renderWithI18n(<IntegrationsTab />);
     expect(

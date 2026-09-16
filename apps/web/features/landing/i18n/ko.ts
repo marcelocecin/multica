@@ -2965,8 +2965,8 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       title: "Multica 소개",
       nameLine: {
         prefix: "Multica — ",
-        mul: "Mul",
-        tiplexed: "tiplexed ",
+        mult: "Mult",
+        iplexed: "iplexed ",
         i: "I",
         nformationAnd: "nformation and ",
         c: "C",
