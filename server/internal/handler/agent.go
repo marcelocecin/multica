@@ -334,7 +334,8 @@ const taskIssueStatusCap = 30
 // TaskIssueStatusData is one active CUSTOM workspace status on the claim wire
 // (MUL-6460). Only the fields an agent needs to choose and write the status
 // travel: key is the CLI argument, name is what users call it in instructions,
-// category anchors the inherited platform behavior, and description is the
+// category uses the legacy wire enum for installed daemons (presentation only,
+// not inherited platform behavior), and description is the
 // admin's "when to use me" guidance — the disambiguator when a category holds
 // more than one status. Color/position/id stay off the wire: they carry no
 // behavioral meaning for an agent, and the server already emits entries in
@@ -2640,10 +2641,12 @@ func (h *Handler) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
 // AgentActivityBucket is one day-bucketed throughput sample for the
 // Agents-list ACTIVITY sparkline. bucket_at is midnight UTC of the day.
 type AgentActivityBucket struct {
-	AgentID     string `json:"agent_id"`
-	BucketAt    string `json:"bucket_at"`
-	TaskCount   int32  `json:"task_count"`
-	FailedCount int32  `json:"failed_count"`
+	AgentID        string `json:"agent_id"`
+	BucketAt       string `json:"bucket_at"`
+	TaskCount      int32  `json:"task_count"`
+	FailedCount    int32  `json:"failed_count"`
+	CompletedCount int32  `json:"completed_count"`
+	CancelledCount int32  `json:"cancelled_count"`
 }
 
 // AgentRunCount is the trailing-30-day total task run count per agent,
@@ -2859,10 +2862,12 @@ func (h *Handler) GetWorkspaceAgentActivity30d(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		resp = append(resp, AgentActivityBucket{
-			AgentID:     agentID,
-			BucketAt:    timestampToString(row.Bucket),
-			TaskCount:   row.TaskCount,
-			FailedCount: row.FailedCount,
+			AgentID:        agentID,
+			BucketAt:       timestampToString(row.Bucket),
+			TaskCount:      row.TaskCount,
+			FailedCount:    row.FailedCount,
+			CompletedCount: row.CompletedCount,
+			CancelledCount: row.CancelledCount,
 		})
 	}
 

@@ -724,6 +724,23 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// connection badge refreshes on every workspace client, not just
 					// the tab that polls the install status to success.
 					regSvc.SetEventBus(bus)
+					// In-flight bind sessions must be readable by every
+					// replica: the dialog polls the status endpoint every
+					// ~5s and any replica can receive that poll. With the
+					// state in one process's memory, a poll routed
+					// elsewhere 404'd and the dialog reported "session
+					// lost" ~5s after the QR rendered (MUL-7340).
+					//
+					// Without Redis the service keeps its in-process
+					// store. That is correct for local development and a
+					// single replica, and wrong for a multi-replica deploy
+					// — which is why this says so out loud instead of
+					// failing quietly at the first status poll.
+					if rdb != nil {
+						regSvc.SetInstallSessionStore(lark.NewRedisInstallSessionStore(rdb))
+					} else {
+						slog.Warn("lark device-flow install: no Redis; bind sessions are per-process and will not survive a multi-replica deployment")
+					}
 					h.LarkRegistration = regSvc
 					slog.Info("lark device-flow install enabled")
 				}
@@ -858,7 +875,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				AppURL:  appURLFromEnv(),
 				Logger:  slog.Default(),
 			})
-			ack := dingtalk.NewAckNotifier(dingtalkClient, box.Open, slog.Default())
+			ack := dingtalk.NewAckNotifier(dingtalkClient, box.Open, slog.Default(), queries)
 			var media engine.MediaResolver
 			if store != nil {
 				media = dingtalk.NewMediaResolver(
@@ -871,7 +888,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			}
 			botNames := dingtalk.NewBotNameResolver(dingtalkClient, box.Open)
 			channelRouter.Register(dingtalk.TypeDingTalk, dingtalk.NewDingTalkResolverSet(queries, pool, replier, ack, media, botNames))
-			dingtalk.NewOutbound(queries, box.Open, dingtalkClient, slog.Default()).Register(bus)
+			dingtalk.NewOutbound(queries, box.Open, dingtalkClient, ack, slog.Default()).Register(bus)
 			dingtalk.RegisterDingTalk(channelRegistry, dingtalk.ChannelDeps{
 				Decrypt:  box.Open,
 				Client:   dingtalkClient,
@@ -2065,6 +2082,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.With(handler.RequireHumanActor).Post("/sub-issues", h.CreateCommentSubIssue)
 				r.Put("/", h.UpdateComment)
 				r.Delete("/", h.DeleteComment)
+				// Same handler under a path servers from before #8296 do not
+				// route. Clients that promise "replies are kept" call this one,
+				// so a request that reaches an older server — mid-rollout, after
+				// a rollback, or self-hosted — fails instead of deleting the
+				// replies with the comment.
+				r.Delete("/keep-replies", h.DeleteComment)
 				r.Post("/resolve", h.ResolveComment)
 				r.Delete("/resolve", h.UnresolveComment)
 				r.Post("/reactions", h.AddReaction)

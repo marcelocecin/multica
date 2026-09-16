@@ -239,6 +239,7 @@ import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
 import {
   AgentTaskListSchema,
+  AgentActivityBucketListSchema,
   AttachmentResponseSchema,
   CancelTaskResponseSchema,
   ChatDraftRestoresResponseSchema,
@@ -415,6 +416,8 @@ import {
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
   SkillSchema,
   EMPTY_SKILL,
+  SkillSummaryListSchema,
+  EMPTY_SKILL_SUMMARY_LIST,
   SkillImportResultSchema,
   EMPTY_SKILL_IMPORT_RESULT,
   IssueViewSchema,
@@ -1361,8 +1364,17 @@ export class ApiClient {
     });
   }
 
-  async deleteComment(commentId: string): Promise<void> {
-    await this.fetch(`/api/comments/${commentId}`, { method: "DELETE" });
+  /**
+   * `keepReplies` calls the route only servers that keep a deleted comment's
+   * replies expose (#8296): if the request reaches an older server it fails
+   * instead of deleting the replies too. Pass it only when the server declared
+   * `comment_delete_keep_replies_supported`.
+   */
+  async deleteComment(commentId: string, opts: { keepReplies?: boolean } = {}): Promise<void> {
+    const path = opts.keepReplies === true
+      ? `/api/comments/${commentId}/keep-replies`
+      : `/api/comments/${commentId}`;
+    await this.fetch(path, { method: "DELETE" });
   }
 
   async resolveComment(commentId: string): Promise<Comment> {
@@ -2384,7 +2396,10 @@ export class ApiClient {
   // sparkline (uses trailing 7 buckets) and the agent detail "Last 30
   // days" panel (uses all 30).
   async getWorkspaceAgentActivity30d(): Promise<AgentActivityBucket[]> {
-    return this.fetch(`/api/agent-activity-30d`);
+    const raw = await this.fetch<unknown>(`/api/agent-activity-30d`);
+    return parseWithFallback<AgentActivityBucket[]>(raw, AgentActivityBucketListSchema, [], {
+      endpoint: "GET /api/agent-activity-30d",
+    });
   }
 
   // Per-agent 30-day total run count for the Agents-list RUNS column.
@@ -3030,7 +3045,10 @@ export class ApiClient {
 
   // Skills
   async listSkills(): Promise<SkillSummary[]> {
-    return this.fetch("/api/skills");
+    const raw = await this.fetch<unknown>("/api/skills");
+    return parseWithFallback(raw, SkillSummaryListSchema, EMPTY_SKILL_SUMMARY_LIST, {
+      endpoint: "GET /api/skills",
+    });
   }
 
   async getSkill(id: string): Promise<Skill> {
@@ -3701,7 +3719,7 @@ export class ApiClient {
   }
 
   /**
-   * Rewrites one category's custom-status order in a single server-side
+   * Rewrites one category's status order in a single server-side
    * statement. Not expressible as a sequence of `updateIssueStatus` calls: a
    * row rejected mid-sequence would leave the earlier rows already reordered
    * while the caller sees a failure. (MUL-6243)
@@ -3709,10 +3727,11 @@ export class ApiClient {
   async reorderIssueStatuses(
     category: IssueStatusCategory,
     ids: string[],
+    includeSystem = false,
   ): Promise<ListIssueStatusesResponse> {
     const raw = await this.fetch<unknown>(`/api/issue-statuses/reorder`, {
       method: "PATCH",
-      body: JSON.stringify({ category, ids }),
+      body: JSON.stringify({ category, ids, include_system: includeSystem }),
     });
     return parseWithFallback(raw, ListIssueStatusesResponseSchema, EMPTY_LIST_ISSUE_STATUSES_RESPONSE, {
       endpoint: "PATCH /api/issue-statuses/reorder",

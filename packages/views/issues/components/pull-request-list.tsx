@@ -54,9 +54,15 @@ export function PullRequestList({ issueId }: { issueId: string }) {
   }
   if (prs.length === 0) {
     return (
-      <p className="text-caption text-muted-foreground px-2">
-        {t(($) => $.detail.pull_requests_empty)}
-      </p>
+      <div className="px-2 text-caption text-muted-foreground">
+        <p>{t(($) => $.detail.pull_requests_empty_title)}</p>
+        <details className="mt-1">
+          <summary className="cursor-pointer rounded-sm py-2 focus-visible:outline-2 focus-visible:outline-ring">
+            {t(($) => $.detail.pull_requests_help)}
+          </summary>
+          <p className="mt-1">{t(($) => $.detail.pull_requests_empty)}</p>
+        </details>
+      </div>
     );
   }
 

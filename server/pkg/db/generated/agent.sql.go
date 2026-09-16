@@ -4320,11 +4320,13 @@ WITH retired_sessions AS (
     SELECT DISTINCT r.retired_session_id AS session_id
     FROM agent_task_queue r
     WHERE r.agent_id = $1 AND r.issue_id = $2
+      AND COALESCE(r.context->>'type', '') <> 'triage'
       AND r.retired_session_id IS NOT NULL
 ), resume_overflow_at AS (
     SELECT MAX(COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at)) AS at
     FROM agent_task_queue t
     WHERE t.agent_id = $1 AND t.issue_id = $2
+      AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.status = 'failed'
       AND (
         COALESCE(t.failure_reason, '') = 'codex_resume_oversized'
@@ -4336,6 +4338,7 @@ WITH retired_sessions AS (
         COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at) AS terminal_at
     FROM agent_task_queue t
     WHERE t.agent_id = $1 AND t.issue_id = $2
+      AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.session_id IS NOT NULL
       AND t.status IN ('completed', 'failed', 'cancelled')
     ORDER BY t.session_id, COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at) DESC
@@ -4484,6 +4487,14 @@ type GetLastTaskSessionRow struct {
 // emptyContentRe and historyMessageLocatorRe in pkg/taskfailure/resume.go.
 // Keep the three in sync.
 //
+// Triage runs are excluded from all three CTEs (MUL-7189 §5.6). A triage run
+// and the execution run that follows accept are the same (agent_id, issue_id)
+// pair, so without this the first execution run would resume the conversation
+// in which the agent was deciding whether the entry was worth keeping. From the
+// execution side an accepted issue is a new issue, and it starts cold. The
+// exclusion is symmetric: a triage run does not resume an execution session
+// either, which is what force_fresh_session on the triage task already ensures.
+//
 // retired_sessions is the explicit half of the same rule (GH #6066). The
 // per-session latest state above can only judge sessions that some row still
 // POINTS at, so it cannot see a session a run deliberately abandoned: a fresh
@@ -4628,6 +4639,7 @@ func (q *Queries) GetLatestTaskRoleForIssueAndAgent(ctx context.Context, arg Get
 const getLatestTaskRolloutMissing = `-- name: GetLatestTaskRolloutMissing :one
 SELECT COALESCE(session_rollout_missing, FALSE) FROM agent_task_queue
 WHERE agent_id = $1 AND issue_id = $2
+  AND COALESCE(context->>'type', '') <> 'triage'
   AND status IN ('completed', 'failed')
   AND started_at IS NOT NULL
 ORDER BY COALESCE(completed_at, started_at, dispatched_at, created_at) DESC
@@ -4645,6 +4657,12 @@ type GetLatestTaskRolloutMissingParams struct {
 // disclose that the most recent turn's context could not be carried over. Any
 // later task that records a real session resets this to FALSE by being the new
 // most-recent row, so the disclosure fires once and then clears.
+//
+// Triage runs are excluded for the same reason GetLastTaskSession excludes them
+// (MUL-7189 §5.6), and the two must agree: this query only reports whether THAT
+// one fell back. A triage run is invisible to it, so a triage run reported here
+// would tell the first execution run after accept that the previous turn's
+// context could not be carried over — about a turn it was never entitled to.
 func (q *Queries) GetLatestTaskRolloutMissing(ctx context.Context, arg GetLatestTaskRolloutMissingParams) (bool, error) {
 	row := q.db.QueryRow(ctx, getLatestTaskRolloutMissing, arg.AgentID, arg.IssueID)
 	var session_rollout_missing bool
@@ -4657,7 +4675,9 @@ SELECT
     atq.agent_id,
     DATE_TRUNC('day', atq.completed_at)::timestamptz AS bucket,
     COUNT(*)::int AS task_count,
-    COUNT(*) FILTER (WHERE atq.status = 'failed')::int AS failed_count
+    COUNT(*) FILTER (WHERE atq.status = 'failed')::int AS failed_count,
+    COUNT(*) FILTER (WHERE atq.status = 'completed')::int AS completed_count,
+    COUNT(*) FILTER (WHERE atq.status = 'cancelled')::int AS cancelled_count
 FROM agent_task_queue atq
 JOIN agent a ON a.id = atq.agent_id
 WHERE a.workspace_id = $1
@@ -4668,10 +4688,12 @@ ORDER BY atq.agent_id, bucket
 `
 
 type GetWorkspaceAgentActivity30dRow struct {
-	AgentID     pgtype.UUID        `json:"agent_id"`
-	Bucket      pgtype.Timestamptz `json:"bucket"`
-	TaskCount   int32              `json:"task_count"`
-	FailedCount int32              `json:"failed_count"`
+	AgentID        pgtype.UUID        `json:"agent_id"`
+	Bucket         pgtype.Timestamptz `json:"bucket"`
+	TaskCount      int32              `json:"task_count"`
+	FailedCount    int32              `json:"failed_count"`
+	CompletedCount int32              `json:"completed_count"`
+	CancelledCount int32              `json:"cancelled_count"`
 }
 
 // Returns per-agent daily activity buckets for the last 30 days. Single
@@ -4688,6 +4710,8 @@ type GetWorkspaceAgentActivity30dRow struct {
 // still in flight has no completed_at and contributes nothing here — that's
 // correct: in-flight tasks are surfaced via the live presence indicator,
 // not the historical trend.
+// Keep total activity separate from outcomes: cancelled runs belong in the
+// history, but success rate is completed / (completed + failed).
 func (q *Queries) GetWorkspaceAgentActivity30d(ctx context.Context, workspaceID pgtype.UUID) ([]GetWorkspaceAgentActivity30dRow, error) {
 	rows, err := q.db.Query(ctx, getWorkspaceAgentActivity30d, workspaceID)
 	if err != nil {
@@ -4702,6 +4726,8 @@ func (q *Queries) GetWorkspaceAgentActivity30d(ctx context.Context, workspaceID 
 			&i.Bucket,
 			&i.TaskCount,
 			&i.FailedCount,
+			&i.CompletedCount,
+			&i.CancelledCount,
 		); err != nil {
 			return nil, err
 		}
@@ -5748,7 +5774,7 @@ func (q *Queries) ListChatFinalizeDeferredExpired(ctx context.Context, arg ListC
 }
 
 const listPendingDelegatedFailureRecoveries = `-- name: ListPendingDelegatedFailureRecoveries :many
-SELECT recovery.id, recovery.issue_id, recovery.author_type, recovery.author_id, recovery.content, recovery.type, recovery.created_at, recovery.updated_at, recovery.parent_id, recovery.workspace_id, recovery.resolved_at, recovery.resolved_by_type, recovery.resolved_by_id, recovery.source_task_id, recovery.quick_action_id, recovery.via_plugin_id, recovery.revision, recovery.recovery_settled_at
+SELECT recovery.id, recovery.issue_id, recovery.author_type, recovery.author_id, recovery.content, recovery.type, recovery.created_at, recovery.updated_at, recovery.parent_id, recovery.workspace_id, recovery.resolved_at, recovery.resolved_by_type, recovery.resolved_by_id, recovery.source_task_id, recovery.quick_action_id, recovery.via_plugin_id, recovery.revision, recovery.recovery_settled_at, recovery.deleted_at
 FROM comment recovery
 JOIN agent_task_queue failed ON failed.id = recovery.source_task_id
 JOIN agent_task_queue source ON source.id = failed.delegated_from_task_id
@@ -5761,6 +5787,8 @@ WHERE recovery.author_type = 'system'
   AND recovery.type = 'progress_update'
   AND recovery.source_task_id IS NOT NULL
   AND recovery.recovery_settled_at IS NULL
+  -- A deleted recovery signal is withdrawn, even when replies keep its row.
+  AND recovery.deleted_at IS NULL
   AND recovery.issue_id = source_issue.id
   AND recovery.workspace_id = source_issue.workspace_id
   AND failed.status = 'failed'
@@ -5770,7 +5798,21 @@ WHERE recovery.author_type = 'system'
   AND source.autopilot_run_id IS NULL
   AND source.issue_id IS NOT NULL
   AND source.agent_id <> failed.agent_id
-  AND COALESCE(source_status.category, source_issue.status) NOT IN ('done', 'cancelled', 'backlog')
+  -- Match canDispatchDelegatedFailureRecovery: lifecycle permits recovery only
+  -- for open work; parking belongs exclusively to the fixed Backlog status.
+  -- Built-ins resolve without catalog rows; unknown custom states stay pending.
+  AND source_issue.status <> 'backlog'
+  -- A coordinator waiting in Triage is the entry's proposed owner, not its
+  -- owner, so a worker failure must not wake it (MUL-7189 §2.3). Triage is not
+  -- a status, so it is a predicate of its own rather than a CASE arm.
+  AND source_issue.triage_state IS NULL
+  AND CASE
+      WHEN source_issue.status IN ('backlog', 'todo') THEN 'unstarted'
+      WHEN source_issue.status IN ('in_progress', 'in_review', 'blocked') THEN 'started'
+      WHEN source_issue.status = 'done' THEN 'done'
+      WHEN source_issue.status = 'cancelled' THEN 'closed'
+      ELSE issue_status_category(source_status.category)
+  END IN ('unstarted', 'started')
   AND source_agent.archived_at IS NULL
   AND source_agent.runtime_id IS NOT NULL
   AND source_agent.workspace_id = source_issue.workspace_id
@@ -5819,7 +5861,8 @@ LIMIT $1
 // that one condition is recorded as durable state instead of being re-proven
 // through four joins and two NOT EXISTS subqueries on every tick. The predicate
 // of idx_comment_delegated_failure_unsettled matches the first four conditions,
-// so LIMIT now bounds the rows CHECKED and not just the rows RETURNED.
+// narrowing the scan to unsettled signals. Reversible eligibility must still
+// be checked before LIMIT so paused signals cannot starve executable ones.
 func (q *Queries) ListPendingDelegatedFailureRecoveries(ctx context.Context, maxPerTick int32) ([]Comment, error) {
 	rows, err := q.db.Query(ctx, listPendingDelegatedFailureRecoveries, maxPerTick)
 	if err != nil {
@@ -5848,6 +5891,7 @@ func (q *Queries) ListPendingDelegatedFailureRecoveries(ctx context.Context, max
 			&i.ViaPluginID,
 			&i.Revision,
 			&i.RecoverySettledAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
