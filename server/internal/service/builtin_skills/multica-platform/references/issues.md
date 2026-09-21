@@ -4,30 +4,12 @@ Product contracts the runtime brief does not fully encode.
 
 - [PR linking and close intent are two distinct contracts](#pr-linking-and-close-intent-are-two-distinct-contracts)
 - [Reading a linked PR's real state](#reading-a-linked-prs-real-state)
-- [Editing comments without overwriting concurrent work](#editing-comments-without-overwriting-concurrent-work)
 - [Custom properties: typed workflow state](#custom-properties-typed-workflow-state)
 - [Status changes have server side effects](#status-changes-have-server-side-effects)
 - [Claim ownership without duplicating a run](#claim-ownership-without-duplicating-a-run)
 - [Who else is running right now](#who-else-is-running-right-now)
 - [Sub-issues: todo starts work now, backlog parks it](#sub-issues-todo-starts-work-now-backlog-parks-it)
 - [Incorrect to correct](#incorrect-to-correct)
-
-## Editing comments without overwriting concurrent work
-
-Read the comment's current `revision`, then supply that positive value when
-updating its body. Agent-authored bodies must use `--content-file`.
-
-```bash
-multica issue comment list <issue-id> --output json
-multica issue comment update <comment-id> --content-file ./comment.md --expected-revision <revision>
-```
-
-If another editor changed the comment, the server rejects the stale revision.
-Read the latest body and reconcile the edits before retrying; do not simply
-advance the revision and overwrite the other edit. Authors can edit their own
-comments; workspace owners and admins can edit any comment. Existing attachments
-remain unchanged. Content edits have the same agent-trigger behavior as edits
-in the app, so do not use an update as a silent bookkeeping operation.
 
 ## PR linking and close intent are two distinct contracts
 
@@ -437,3 +419,31 @@ multica issue create --title "Step 1" --parent <issue-id> --assignee <agent> --s
 multica issue create --title "Step 2" --parent <issue-id> --assignee <agent> --stage 2 --status backlog
 multica issue create --title "Step 3" --parent <issue-id> --assignee <agent> --stage 3 --status backlog
 ```
+
+## Issue wakeups
+
+Use `multica issue wakeup` to arrange a future ordinary run, then finish the
+current run. A wakeup persists on the issue; it is not a sleeping process.
+
+- `wakeup events` lists supported business facts. These work with plugins disabled.
+- `wakeup create <issue> --agent-id <target> --kind event --event task.completed,task.failed,task.cancelled --task-id <run> --instruction-file ./instruction.md` wakes once. Omit `--agent-id` only when acting as the authenticated agent. A specific run must belong to this issue; if already terminal, registration captures its matching state immediately.
+- For a continuing subscription use `--mode continuous`. For task events, use `--filter-agent-id` to match that agent's future runs; this does not replay historical runs. For comment/issue/reaction/attachment changes, use `--filter-actor-type member|agent --filter-actor-id <user-or-agent-id>` to match the actual author/editor. Mutation-only `--filter-agent-id` remains a legacy alias for actor=agent; do not combine it with actor flags.
+- `wakeup create <issue> --kind at --after 10m --instruction-file ./instruction.md` schedules one run. Alternatively use `--at <RFC3339>`.
+- `wakeup create <issue> --kind every --every 1h --instruction-file ./instruction.md` schedules a repeating check. Or use `--kind cron --cron '0 * * * *' --timezone Asia/Shanghai`.
+- `wakeup list <issue>` / `wakeup get <issue> <id>` show the saved configuration, next time and latest run. Only promise that a reminder is arranged after creation succeeds.
+- `wakeup update <issue> <id>` uses the same flags as create and replaces the whole configuration, explicitly re-enabling it. Supply all intended fields. Old unclaimed work is withdrawn.
+- `wakeup disable <issue> <id>` stops future triggers and withdraws unclaimed work. Users can also turn it off in the issue sidebar. Closing/cancelling/completing the issue disables its wakeups; reopening does not restore them.
+- `--parent <comment-id>` keeps result delivery in the original thread.
+
+Read current state with issue get, comment list, and run inspection before
+judging business completion. For CI, use the existing GitHub tools from a time
+wakeup; CI events are not supported here yet. A failed run does not imply its
+business goal is complete. Automatic retry chains are not followed by event
+filters; subscribe to a new run if needed. Once the goal is met, disable any
+continuous configuration. Every wakeup runs under ordinary execution and comment
+delivery rules, even when a periodic check finds no change.
+
+Self-trigger protection excludes the registering run and runs started by the
+same rule when their source identity is available. It does not prevent cycles
+between different rules. Avoid mutually triggering continuous comment subscriptions;
+when waiting for a person's reply, filter that member explicitly.
