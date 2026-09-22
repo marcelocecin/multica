@@ -62,6 +62,8 @@ export type {
   ProviderUsageWindow,
   ProviderUsageSnapshot,
   ProviderUsageResponse,
+  RuntimeProviderUsageListItem,
+  RuntimeProviderUsageListResponse,
   DashboardUsageDaily,
   DashboardUsageByAgent,
   DashboardAgentRunTime,

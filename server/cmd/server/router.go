@@ -2265,6 +2265,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Runtimes
 			r.Route("/api/runtimes", func(r chi.Router) {
 				r.Get("/", h.ListAgentRuntimes)
+				// Static path before /{runtimeId} so "provider-usage" is not
+				// captured as a runtime id. One read for the machine table.
+				r.Get("/provider-usage", h.ListRuntimesProviderUsage)
 				r.Route("/{runtimeId}", func(r chi.Router) {
 					r.Patch("/", h.UpdateAgentRuntime)
 					r.Get("/usage", h.GetRuntimeUsage)

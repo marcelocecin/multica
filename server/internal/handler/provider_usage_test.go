@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 func TestRejectCredentialFields(t *testing.T) {
@@ -73,6 +76,92 @@ func TestNormalizeProviderUsageReport(t *testing.T) {
 		Windows:     []providerUsageWindowReport{{ID: "Auto", PercentUsed: 1}},
 	}); err == nil {
 		t.Fatal("non-lowercase window id accepted")
+	}
+}
+
+func TestProviderUsageBatchGroupsByRuntime(t *testing.T) {
+	claudeID := parseUUID("11111111-1111-1111-1111-111111111111")
+	codexID := parseUUID("22222222-2222-2222-2222-222222222222")
+	reset := time.Date(2026, 9, 22, 15, 0, 0, 0, time.UTC)
+	rows := []db.ListRuntimeProviderUsageByRuntimeIDsRow{
+		{
+			RuntimeID:   claudeID,
+			Provider:    "claude",
+			WindowID:    "session",
+			PercentUsed: pgtype.Float8{Float64: 38.2, Valid: true},
+			ResetsAt:    pgtype.Timestamptz{Time: reset, Valid: true},
+			PlanName:    pgtype.Text{String: "Max", Valid: true},
+			CollectedAt: pgtype.Timestamptz{Time: reset.Add(-time.Hour), Valid: true},
+		},
+		{
+			RuntimeID:   claudeID,
+			Provider:    "cursor",
+			WindowID:    "auto",
+			PercentUsed: pgtype.Float8{Float64: 10, Valid: true},
+			CollectedAt: pgtype.Timestamptz{Time: reset, Valid: true},
+		},
+		{
+			RuntimeID:   codexID,
+			Provider:    "codex",
+			WindowID:    "",
+			ReasonCode:  pgtype.Text{String: "not_logged_in", Valid: true},
+			CollectedAt: pgtype.Timestamptz{Time: reset, Valid: true},
+		},
+	}
+	got := providerUsageBatchFromRows([]pgtype.UUID{codexID, claudeID}, rows)
+	if len(got.Runtimes) != 2 {
+		t.Fatalf("runtimes = %+v", got.Runtimes)
+	}
+	if got.Runtimes[0].RuntimeID != uuidToString(codexID) || got.Runtimes[0].Providers[0].ReasonCode != "not_logged_in" {
+		t.Fatalf("codex group = %+v", got.Runtimes[0])
+	}
+	if len(got.Runtimes[0].Providers[0].Windows) != 0 {
+		t.Fatal("empty login snapshot included a window")
+	}
+	claude := got.Runtimes[1]
+	if claude.RuntimeID != uuidToString(claudeID) || len(claude.Providers) != 2 {
+		t.Fatalf("claude group = %+v", claude)
+	}
+	if claude.Providers[0].PlanName != "Max" || claude.Providers[0].Windows[0].PercentUsed != 38.2 {
+		t.Fatalf("session window = %+v", claude.Providers[0])
+	}
+	if claude.Providers[0].Windows[0].ResetsAt == nil || *claude.Providers[0].Windows[0].ResetsAt != reset.Format(time.RFC3339) {
+		t.Fatalf("reset = %+v", claude.Providers[0].Windows[0].ResetsAt)
+	}
+}
+
+func TestProviderUsageReadableIDsDropsPrivateAndForeign(t *testing.T) {
+	ws := parseUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	otherWS := parseUUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	owner := parseUUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	viewer := parseUUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	publicID := parseUUID("11111111-1111-1111-1111-111111111111")
+	privateID := parseUUID("22222222-2222-2222-2222-222222222222")
+	foreignID := parseUUID("33333333-3333-3333-3333-333333333333")
+	member := db.Member{UserID: viewer, WorkspaceID: ws}
+	found := map[string]db.AgentRuntime{
+		uuidToString(publicID): {
+			ID:          publicID,
+			WorkspaceID: ws,
+			OwnerID:     owner,
+			Visibility:  "public",
+		},
+		uuidToString(privateID): {
+			ID:          privateID,
+			WorkspaceID: ws,
+			OwnerID:     owner,
+			Visibility:  "private",
+		},
+		uuidToString(foreignID): {
+			ID:          foreignID,
+			WorkspaceID: otherWS,
+			OwnerID:     viewer,
+			Visibility:  "public",
+		},
+	}
+	got := providerUsageReadableIDs(uuidToString(ws), member, []pgtype.UUID{publicID, privateID, foreignID, publicID}, found)
+	if len(got) != 1 || got[0] != publicID {
+		t.Fatalf("readable = %+v", got)
 	}
 }
 

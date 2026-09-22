@@ -55,6 +55,8 @@ import {
   RuntimeUsageListSchema,
   ProviderUsageResponseSchema,
   EMPTY_PROVIDER_USAGE_RESPONSE,
+  RuntimeProviderUsageListSchema,
+  EMPTY_RUNTIME_PROVIDER_USAGE_LIST,
   SendChatMessageResponseSchema,
   SquadListSchema,
   SquadSchema,
@@ -1178,6 +1180,36 @@ describe("dashboard + runtime usage schema drift", () => {
     expect(partial.providers[1]?.provider).toBe("");
     expect(partial.providers[1]?.windows?.[0]?.id).toBe("");
     expect(partial.providers[1]?.windows?.[0]?.percent_used).toBe(12);
+  });
+
+  it("falls back when a runtime provider-usage list is malformed and keeps a partial row", () => {
+    expect(
+      parseWithFallback(
+        { runtimes: "nope" },
+        RuntimeProviderUsageListSchema,
+        EMPTY_RUNTIME_PROVIDER_USAGE_LIST,
+        { endpoint: "GET /api/runtimes/provider-usage" },
+      ),
+    ).toEqual(EMPTY_RUNTIME_PROVIDER_USAGE_LIST);
+    expect(
+      parseWithFallback(
+        null,
+        RuntimeProviderUsageListSchema,
+        EMPTY_RUNTIME_PROVIDER_USAGE_LIST,
+        { endpoint: "GET /api/runtimes/provider-usage" },
+      ).runtimes,
+    ).toEqual([]);
+
+    const partial = RuntimeProviderUsageListSchema.parse({
+      runtimes: [
+        { providers: [{ provider: "claude", windows: [{ percent_used: 38 }] }] },
+        { runtime_id: "rt-2" },
+      ],
+    });
+    expect(partial.runtimes[0]?.runtime_id).toBe("");
+    expect(partial.runtimes[0]?.providers[0]?.windows?.[0]?.percent_used).toBe(38);
+    expect(partial.runtimes[1]?.runtime_id).toBe("rt-2");
+    expect(partial.runtimes[1]?.providers).toEqual([]);
   });
 
   it("defaults a missing provider to \"\" so an older server's rows still price by bare model", () => {

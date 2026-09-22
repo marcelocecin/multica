@@ -86,6 +86,19 @@ type providerUsageResponse struct {
 	Providers []providerUsageSnapshotResponse `json:"providers"`
 }
 
+type providerUsageBatchItem struct {
+	RuntimeID string                          `json:"runtime_id"`
+	Providers []providerUsageSnapshotResponse `json:"providers"`
+}
+
+type providerUsageBatchResponse struct {
+	Runtimes []providerUsageBatchItem `json:"runtimes"`
+}
+
+// A machine hosts a handful of runtimes. The cap keeps the list read from
+// turning into an unbounded IN list.
+const providerUsageBatchMaxRuntimes = 64
+
 // ReportProviderUsage stores one derived plan-limit snapshot for a runtime.
 // The body is rejected when it carries a token, cookie, or auth.json field.
 func (h *Handler) ReportProviderUsage(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +176,49 @@ func (h *Handler) GetRuntimeProviderUsage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, providerUsageResponseFromRows(rows))
+}
+
+// ListRuntimesProviderUsage returns derived plan-limit snapshots for the
+// runtimes on one machine in a single read. Callers pass the runtime ids
+// already on screen. Private runtimes the member cannot use are omitted.
+func (h *Handler) ListRuntimesProviderUsage(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	if !ok {
+		return
+	}
+	ids, ok := parseUUIDParamList(w, r.URL.Query().Get("runtime_ids"), "runtime_ids")
+	if !ok {
+		return
+	}
+	if len(ids) > providerUsageBatchMaxRuntimes {
+		writeError(w, http.StatusBadRequest, "too many runtime_ids")
+		return
+	}
+	empty := providerUsageBatchResponse{Runtimes: []providerUsageBatchItem{}}
+	if len(ids) == 0 {
+		writeJSON(w, http.StatusOK, empty)
+		return
+	}
+	found, err := h.getAgentRuntimes(r.Context(), obsmetrics.RuntimeLookupSourceRuntimeAPI, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list provider usage")
+		return
+	}
+	allowed := providerUsageReadableIDs(workspaceID, member, ids, found)
+	if len(allowed) == 0 {
+		writeJSON(w, http.StatusOK, empty)
+		return
+	}
+	rows, err := h.Queries.ListRuntimeProviderUsageByRuntimeIDs(r.Context(), db.ListRuntimeProviderUsageByRuntimeIDsParams{
+		WorkspaceID: parseUUID(workspaceID),
+		RuntimeIds:  allowed,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list provider usage")
+		return
+	}
+	writeJSON(w, http.StatusOK, providerUsageBatchFromRows(allowed, rows))
 }
 
 type normalizedProviderUsage struct {
@@ -328,7 +384,86 @@ func credentialString(s string) bool {
 	return len(parts) == 3 && len(s) >= 40 && strings.HasPrefix(parts[0], "eyJ")
 }
 
+type providerUsageWindowSource struct {
+	Provider    string
+	WindowID    string
+	PercentUsed pgtype.Float8
+	ResetsAt    pgtype.Timestamptz
+	PlanName    pgtype.Text
+	CollectedAt pgtype.Timestamptz
+	ReasonCode  pgtype.Text
+}
+
 func providerUsageResponseFromRows(rows []db.ListRuntimeProviderUsageRow) providerUsageResponse {
+	sources := make([]providerUsageWindowSource, 0, len(rows))
+	for _, row := range rows {
+		sources = append(sources, providerUsageWindowSource{
+			Provider:    row.Provider,
+			WindowID:    row.WindowID,
+			PercentUsed: row.PercentUsed,
+			ResetsAt:    row.ResetsAt,
+			PlanName:    row.PlanName,
+			CollectedAt: row.CollectedAt,
+			ReasonCode:  row.ReasonCode,
+		})
+	}
+	return providerUsageResponse{Providers: snapshotsFromSources(sources)}
+}
+
+func providerUsageBatchFromRows(allowed []pgtype.UUID, rows []db.ListRuntimeProviderUsageByRuntimeIDsRow) providerUsageBatchResponse {
+	grouped := map[string][]providerUsageWindowSource{}
+	for _, row := range rows {
+		key := uuidToString(row.RuntimeID)
+		grouped[key] = append(grouped[key], providerUsageWindowSource{
+			Provider:    row.Provider,
+			WindowID:    row.WindowID,
+			PercentUsed: row.PercentUsed,
+			ResetsAt:    row.ResetsAt,
+			PlanName:    row.PlanName,
+			CollectedAt: row.CollectedAt,
+			ReasonCode:  row.ReasonCode,
+		})
+	}
+	resp := providerUsageBatchResponse{Runtimes: []providerUsageBatchItem{}}
+	for _, id := range allowed {
+		key := uuidToString(id)
+		sources, ok := grouped[key]
+		if !ok {
+			continue
+		}
+		resp.Runtimes = append(resp.Runtimes, providerUsageBatchItem{
+			RuntimeID: key,
+			Providers: snapshotsFromSources(sources),
+		})
+	}
+	return resp
+}
+
+// providerUsageReadableIDs keeps runtimes in this workspace that the member
+// may use. Missing, cross-workspace, and private rows are dropped so the
+// batch cannot confirm that a hidden runtime exists.
+func providerUsageReadableIDs(workspaceID string, member db.Member, requested []pgtype.UUID, found map[string]db.AgentRuntime) []pgtype.UUID {
+	seen := map[string]struct{}{}
+	out := make([]pgtype.UUID, 0, len(requested))
+	for _, id := range requested {
+		key := uuidToString(id)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		rt, ok := found[key]
+		if !ok || uuidToString(rt.WorkspaceID) != workspaceID {
+			continue
+		}
+		if !canUseRuntimeForAgent(member, rt) {
+			continue
+		}
+		out = append(out, rt.ID)
+	}
+	return out
+}
+
+func snapshotsFromSources(rows []providerUsageWindowSource) []providerUsageSnapshotResponse {
 	order := make([]string, 0)
 	byProvider := map[string]*providerUsageSnapshotResponse{}
 	for _, row := range rows {
@@ -361,11 +496,11 @@ func providerUsageResponseFromRows(rows []db.ListRuntimeProviderUsageRow) provid
 		}
 		snap.Windows = append(snap.Windows, window)
 	}
-	resp := providerUsageResponse{Providers: make([]providerUsageSnapshotResponse, 0, len(order))}
+	out := make([]providerUsageSnapshotResponse, 0, len(order))
 	for _, provider := range order {
-		resp.Providers = append(resp.Providers, *byProvider[provider])
+		out = append(out, *byProvider[provider])
 	}
-	return resp
+	return out
 }
 
 func textValue(v pgtype.Text) string {
