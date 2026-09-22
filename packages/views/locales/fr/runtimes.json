@@ -468,7 +468,7 @@
     "no_data": "Aucune donnée de consommation pour l'instant",
     "provider_limits": {
       "title": "Usage du forfait",
-      "description": "Pourcentage utilisé des sessions Claude, Cursor et Codex connectées sur cette machine.",
+      "description": "Pourcentage utilisé du forfait connecté sur ce runtime.",
       "empty": "Aucune session locale sur cette machine.",
       "waiting": "Aucun usage de forfait n'a encore été remonté depuis cette machine.",
       "plan": "Forfait",

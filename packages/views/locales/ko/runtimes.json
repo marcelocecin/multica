@@ -452,7 +452,7 @@
     "no_data": "아직 사용량 데이터가 없습니다",
     "provider_limits": {
       "title": "플랜 사용량",
-      "description": "이 머신에 로그인된 Claude, Cursor, Codex 세션의 사용 비율입니다.",
+      "description": "이 런타임에 로그인된 플랜의 사용 비율입니다.",
       "empty": "이 머신에 로컬 세션이 없습니다.",
       "waiting": "이 머신에서 아직 플랜 사용량이 보고되지 않았습니다.",
       "plan": "플랜",

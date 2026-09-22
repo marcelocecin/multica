@@ -70,10 +70,17 @@ describe("ProviderUsageBlock", () => {
       },
     };
 
-    render(<ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" />, {
-      wrapper: Wrapper,
-    });
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="claude" />,
+      { wrapper: Wrapper },
+    );
 
+    expect(
+      screen.getByText("Percent used on this runtime's signed-in plan."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Claude, Cursor, and Codex/),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Plan: Max")).toBeInTheDocument();
     expect(screen.getByText("Session")).toBeInTheDocument();
@@ -102,9 +109,10 @@ describe("ProviderUsageBlock", () => {
       },
     };
 
-    render(<ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" />, {
-      wrapper: Wrapper,
-    });
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="codex" />,
+      { wrapper: Wrapper },
+    );
 
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(
@@ -114,22 +122,92 @@ describe("ProviderUsageBlock", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps an unknown provider label and falls back for an unknown reason", () => {
+  it("shows the waiting state for an unknown runtime instead of other vendors", () => {
     queryResult.current = {
       isLoading: false,
       data: {
-        providers: [{ provider: "mystery", reason_code: "brand_new" }],
+        providers: [
+          {
+            provider: "claude",
+            windows: [{ id: "session", percent_used: 1 }],
+          },
+          {
+            provider: "codex",
+            windows: [{ id: "primary", percent_used: 2 }],
+          },
+          {
+            provider: "cursor",
+            windows: [{ id: "auto", percent_used: 3 }],
+          },
+          { provider: "mystery", reason_code: "brand_new" },
+        ],
       },
     };
 
-    render(<ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" />, {
-      wrapper: Wrapper,
-    });
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="grok" />,
+      { wrapper: Wrapper },
+    );
 
-    expect(screen.getByText("mystery")).toBeInTheDocument();
     expect(
-      screen.getByText("No local session on this machine."),
+      screen.getByText("No plan usage reported from this machine yet."),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
+    expect(screen.queryByText("Codex")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cursor")).not.toBeInTheDocument();
+    expect(screen.queryByText("mystery")).not.toBeInTheDocument();
+  });
+
+  it("shows only Claude windows when the machine also reported Codex and Cursor", () => {
+    queryResult.current = {
+      isLoading: false,
+      data: {
+        providers: [
+          {
+            provider: "claude",
+            plan_name: "Max",
+            windows: [
+              { id: "session", percent_used: 0 },
+              { id: "weekly_all", percent_used: 25 },
+            ],
+          },
+          {
+            provider: "codex",
+            plan_name: "free",
+            windows: [{ id: "primary", percent_used: 6 }],
+          },
+          {
+            provider: "cursor",
+            plan_name: "pro",
+            windows: [
+              { id: "api", percent_used: 9 },
+              { id: "auto", percent_used: 10 },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="claude" />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("Session")).toBeInTheDocument();
+    expect(screen.getByText("Weekly")).toBeInTheDocument();
+    expect(screen.getByText("0% used")).toBeInTheDocument();
+    expect(screen.getByText("25% used")).toBeInTheDocument();
+    expect(screen.queryByText("Codex")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cursor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Primary")).not.toBeInTheDocument();
+    expect(screen.queryByText("API")).not.toBeInTheDocument();
+    expect(screen.queryByText("Auto")).not.toBeInTheDocument();
+    expect(screen.queryByText("6% used")).not.toBeInTheDocument();
+    expect(screen.queryByText("9% used")).not.toBeInTheDocument();
+    expect(screen.queryByText("10% used")).not.toBeInTheDocument();
+    expect(screen.queryByText("Plan: free")).not.toBeInTheDocument();
+    expect(screen.queryByText("Plan: pro")).not.toBeInTheDocument();
   });
 
   it("tolerates a snapshot that omits windows", () => {
@@ -140,9 +218,10 @@ describe("ProviderUsageBlock", () => {
       },
     };
 
-    render(<ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" />, {
-      wrapper: Wrapper,
-    });
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="cursor" />,
+      { wrapper: Wrapper },
+    );
 
     expect(screen.getByText("Cursor")).toBeInTheDocument();
     expect(screen.getByText("Plan: pro")).toBeInTheDocument();
@@ -154,9 +233,10 @@ describe("ProviderUsageBlock", () => {
   it("shows the waiting copy when the machine has not reported yet", () => {
     queryResult.current = { isLoading: false, data: { providers: [] } };
 
-    render(<ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" />, {
-      wrapper: Wrapper,
-    });
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="claude" />,
+      { wrapper: Wrapper },
+    );
 
     expect(
       screen.getByText("No plan usage reported from this machine yet."),
