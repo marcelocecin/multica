@@ -35,8 +35,9 @@ import { AppLink } from "../../../navigation";
 import { TranscriptButton } from "../../../common/task-transcript";
 import { AttributionBadge } from "../../../issues/components/attribution-badge";
 import { taskStatusConfig } from "../../config";
-import { failureReasonLabel } from "./task-failure";
+import { cancellationActorLabel, cancelReasonLabel, failureReasonLabel } from "./task-failure";
 import { Sparkline } from "../sparkline";
+import { ProviderUsageBlock } from "../../../runtimes/components/provider-usage-block";
 import { useT, useTimeAgo } from "../../../i18n";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -173,6 +174,9 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
+      {agent.runtime_id ? (
+        <ProviderUsageBlock wsId={wsId} runtimeId={agent.runtime_id} />
+      ) : null}
       <NowSection tasks={activeTasks} issueMap={issueMap} agent={agent} />
       {showPerformance && (
         <Last30dSection activity={activity} avgDurationMs={avgDurationMs} />
@@ -207,13 +211,6 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
     () => deriveAvgDurationLast30d(agentTasks, Date.now()),
     [agentTasks],
   );
-  const successPct =
-    summary.totalRuns > 0
-      ? Math.round(
-          ((summary.totalRuns - summary.totalFailed) / summary.totalRuns) *
-            100,
-        )
-      : 100;
 
   return (
     <section className="mt-5 border-t pt-5">
@@ -234,7 +231,7 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
               })}
             />
             <Metric
-              value={`${successPct}%`}
+              value={<SuccessRate rate={summary.successRate} />}
               label={t(($) => $.tab_body.activity.success_label)}
             />
             <Metric
@@ -247,6 +244,13 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
               destructive={summary.totalFailed > 0}
             />
           </div>
+          {summary.totalCancelled > 0 && (
+            <p className="mt-2 text-caption text-muted-foreground">
+              {t(($) => $.tab_body.activity.cancelled_count, {
+                count: summary.totalCancelled,
+              })}
+            </p>
+          )}
           <Sparkline
             buckets={summary.buckets}
             width={250}
@@ -264,7 +268,7 @@ function Metric({
   label,
   destructive = false,
 }: {
-  value: string;
+  value: ReactNode;
   label: string;
   destructive?: boolean;
 }) {
@@ -279,6 +283,32 @@ function Metric({
       </div>
       <div className="truncate text-micro text-muted-foreground">{label}</div>
     </div>
+  );
+}
+
+function SuccessRate({
+  rate,
+  labelled = false,
+}: {
+  rate: number | null;
+  labelled?: boolean;
+}) {
+  const { t } = useT("agents");
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span tabIndex={0} />}>
+        {rate === null
+          ? "—"
+          : labelled
+            ? t(($) => $.tab_body.activity.success_pct, { percent: rate })
+            : `${rate}%`}
+      </TooltipTrigger>
+      <TooltipContent>
+        {rate === null
+          ? t(($) => $.tab_body.activity.success_unavailable)
+          : t(($) => $.tab_body.activity.success_hint)}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -326,10 +356,6 @@ function Last30dSection({
   const summary = summarizeActivityWindow(activity, 30);
   const { totalRuns, totalFailed } = summary;
   const locales = i18n.resolvedLanguage ?? i18n.language;
-  const successPct =
-    totalRuns > 0
-      ? Math.round(((totalRuns - totalFailed) / totalRuns) * 100)
-      : 100;
 
   return (
     <Section title={t(($) => $.tab_body.activity.section_last_30d)} subtitle={t(($) => $.tab_body.activity.subtitle_performance)}>
@@ -351,7 +377,7 @@ function Last30dSection({
               </span>
             </div>
             <div className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.activity.success_pct, { percent: successPct })}
+              <SuccessRate rate={summary.successRate} labelled />
               {avgDurationMs > 0 && (
                 <>
                   <Sep />
@@ -363,6 +389,16 @@ function Last30dSection({
                   <Sep />
                   <span className="text-destructive">
                     {t(($) => $.tab_body.activity.failed_count, { count: totalFailed })}
+                  </span>
+                </>
+              )}
+              {summary.totalCancelled > 0 && (
+                <>
+                  <Sep />
+                  <span>
+                    {t(($) => $.tab_body.activity.cancelled_count, {
+                      count: summary.totalCancelled,
+                    })}
                   </span>
                 </>
               )}
@@ -429,7 +465,7 @@ function RecentWorkSection({
             <button
               type="button"
               onClick={onShowMore}
-              className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground"
+              className="mt-2 self-start rounded-xs text-caption text-muted-foreground transition-colors hover:text-foreground"
             >
               {t(($) => $.tab_body.activity.show_more)}
             </button>
@@ -585,10 +621,16 @@ function TaskRow({
 
   // Failure reason. The back-end emits "" on non-failed tasks (omitempty
   // strips it on the wire) so the truthy guard is the right shape.
-  // failureReasonLabel takes the raw open string — the taxonomy has 21
-  // values and grows, so there is no enum to cast to.
+  // failureReasonLabel takes the raw open string because the taxonomy grows,
+  // so there is no enum to cast to. Cancelled rows get a
+  // label only when the SERVER cancelled them for a persisted reason
+  // (worktree claim gate, preserved-work delivery); a user's own cancel
+  // stays a plain "Cancelled".
   const failureLabel =
-    task.status === "failed" ? failureReasonLabel(task.failure_reason) : null;
+    task.status === "failed"
+      ? failureReasonLabel(task.failure_reason, t)
+      : cancelReasonLabel(task, t);
+  const statusLabel = cancellationActorLabel(task, t) ?? taskStatusLabel(task.status, t);
 
   // Only show duration for terminal rows. An active row's duration is
   // inferred from the timeText already ("Started 2m ago") and adding a
@@ -664,7 +706,7 @@ function TaskRow({
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted-foreground">
           <span className={cfg.color}>
-            {taskStatusLabel(task.status, t)}
+            {statusLabel}
           </span>
           <Sep />
           <span>{timeText}</span>
@@ -677,6 +719,12 @@ function TaskRow({
           {failureLabel && (
             <>
               <Sep />
+              {/* The localized reason is the whole user-facing explanation
+                  here. The raw `task.error` used to ride along as this
+                  element's `title`, which put untranslated English (and
+                  absolute paths) in front of every non-English workspace
+                  (#7411); the full diagnostic lives in the transcript's Run
+                  details instead. */}
               <span className="text-destructive">{failureLabel}</span>
             </>
           )}
@@ -708,7 +756,7 @@ function TaskRow({
             <TooltipTrigger
               render={<AppLink href={paths.issueDetail(task.issue_id)} />}
               aria-label={t(($) => $.tab_body.activity.open_issue_aria)}
-              className="flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              className="flex items-center justify-center rounded-xs p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             </TooltipTrigger>
@@ -734,7 +782,7 @@ function TaskRow({
                   aria-label={t(($) => $.tab_body.activity.cancel_task_aria)}
                 />
               }
-              className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-center rounded-xs p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </TooltipTrigger>
@@ -787,6 +835,7 @@ type TimeAgoFn = (dateStr: string) => string;
 function taskStatusLabel(status: AgentTask["status"], t: AgentsT): string {
   switch (status) {
     case "queued":
+    case "deferred":
       return t(($) => $.tab_body.activity.status.queued);
     case "dispatched":
       return t(($) => $.tab_body.activity.status.dispatched);

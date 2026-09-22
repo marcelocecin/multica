@@ -50,14 +50,19 @@ import {
   TooltipTrigger,
 } from "@multica/ui/components/ui/tooltip";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
-import { useNavigation, useRowLink } from "../../navigation";
+import {
+  rowLinkInteractiveProps,
+  useNavigation,
+  useRowLink,
+} from "../../navigation";
 import {
   CollectionPageHeader,
   CollectionPageHeaderAction,
   CollectionPageState,
 } from "../../layout/collection-page";
 import { canEditSkill } from "../hooks/use-can-edit-skill";
-import { readOrigin, type OriginInfo } from "../lib/origin";
+import { originSourceUrl, readOrigin } from "../lib/origin";
+import { rowMatchesFilters, type SkillRow } from "./skill-list-filter";
 import { CreateSkillDialog } from "./create-skill-dialog";
 import {
   useSkillsViewStore,
@@ -148,15 +153,7 @@ function columnTrackVars(
 // (@multica/core/skills/stores/view-store) so the persisted state and the
 // UI share one definition. Re-exported here for the toolbar's convenience.
 export type SortField = SkillSortField;
-
-export interface SkillRow {
-  skill: SkillSummary;
-  agents: Agent[];
-  creator: MemberWithUser | null;
-  runtime: AgentRuntime | null;
-  originType: OriginInfo["type"];
-  canEdit: boolean;
-}
+export { rowMatchesFilters, type SkillRow } from "./skill-list-filter";
 
 // ---------------------------------------------------------------------------
 // Page header bar — uses shared PageHeader so the mobile sidebar trigger and
@@ -348,10 +345,33 @@ function SourceCell({
     label = t(($) => $.table.source_github);
   }
 
+  // Imported skills link to their upstream page; the anchor must not bubble
+  // its click OR auxclick into the row's whole-row navigation.
+  const sourceUrl = originSourceUrl(origin);
+
   return (
     <ListGridCell className="hidden gap-1.5 text-caption text-muted-foreground @2xl:flex">
       {icon}
-      <span className="min-w-0 truncate">{label}</span>
+      {sourceUrl ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                {...rowLinkInteractiveProps}
+                className="min-w-0 truncate hover:underline"
+              >
+                {label}
+              </a>
+            }
+          />
+          <TooltipContent side="top">{sourceUrl}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="min-w-0 truncate">{label}</span>
+      )}
     </ListGridCell>
   );
 }
@@ -662,34 +682,9 @@ export default function SkillsPage() {
 
   // Visible rows: name search + filters, then sort.
   const rows = useMemo<SkillRow[]>(() => {
-    const q = search.trim().toLowerCase();
-    const filtered = allRows.filter((row) => {
-      if (q && !row.skill.name.toLowerCase().includes(q)) return false;
-      if (filters.usage.length > 0) {
-        const usage = row.agents.length > 0 ? "used" : "unused";
-        if (!filters.usage.includes(usage)) return false;
-      }
-      if (
-        filters.origins.length > 0 &&
-        !filters.origins.includes(row.originType)
-      ) {
-        return false;
-      }
-      if (
-        filters.agents.length > 0 &&
-        !row.agents.some((a) => filters.agents.includes(a.id))
-      ) {
-        return false;
-      }
-      if (
-        filters.creators.length > 0 &&
-        (!row.skill.created_by ||
-          !filters.creators.includes(row.skill.created_by))
-      ) {
-        return false;
-      }
-      return true;
-    });
+    const filtered = allRows.filter((row) =>
+      rowMatchesFilters(row, filters, search),
+    );
 
     const dir = sortDirection === "asc" ? 1 : -1;
     filtered.sort((a, b) => {
@@ -872,7 +867,7 @@ export default function SkillsPage() {
                 className={`cursor-pointer ${
                   selectedIds.has(row.skill.id) ? "bg-accent/30" : ""
                 }`}
-                {...rowLink(paths.skillDetail(row.skill.id))}
+                {...rowLink(paths.skillDetail(row.skill.id), row.skill.name)}
               >
                 <CheckboxCell
                   checked={selectedIds.has(row.skill.id)}

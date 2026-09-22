@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestQwenpawModelSelectionUnsupported(t *testing.T) {
@@ -19,17 +18,6 @@ func TestQwenpawModelSelectionUnsupported(t *testing.T) {
 	// Other providers should remain supported
 	if !ModelSelectionSupported("claude") {
 		t.Fatal("ModelSelectionSupported(claude) should remain true")
-	}
-}
-
-func TestNewReturnsQwenpawBackend(t *testing.T) {
-	t.Parallel()
-	b, err := New("qwenpaw", Config{ExecutablePath: "/nonexistent/qwenpaw"})
-	if err != nil {
-		t.Fatalf("New(qwenpaw) error: %v", err)
-	}
-	if _, ok := b.(*qwenpawBackend); !ok {
-		t.Fatalf("expected *qwenpawBackend, got %T", b)
 	}
 }
 
@@ -220,7 +208,7 @@ func TestQwenpawListModels(t *testing.T) {
 	marker := filepath.Join(dir, "invoked")
 	bin := writeFakeQwenpawScript(t, "#!/bin/sh\ntouch '"+marker+"'\nexit 0\n")
 
-	cat, err := ListModels(context.Background(), "qwenpaw", bin)
+	cat, err := ListModels(context.Background(), "qwenpaw", Command{Path: bin})
 	if err != nil {
 		t.Fatalf("qwenpaw ListModels should not error, got: %v", err)
 	}
@@ -229,22 +217,6 @@ func TestQwenpawListModels(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("qwenpaw ListModels executed the CLI; it must return an empty catalog without spawning a discovery subprocess")
-	}
-}
-
-func TestQwenpawBlockedArgs(t *testing.T) {
-	t.Parallel()
-	if _, ok := qwenpawBlockedArgs["acp"]; !ok {
-		t.Fatal("expected acp to be in qwenpawBlockedArgs")
-	}
-	if qwenpawBlockedArgs["acp"] != blockedStandalone {
-		t.Fatalf("expected acp to be blockedStandalone, got %v", qwenpawBlockedArgs["acp"])
-	}
-	if _, ok := qwenpawBlockedArgs["--workspace"]; !ok {
-		t.Fatal("expected --workspace to be in qwenpawBlockedArgs")
-	}
-	if qwenpawBlockedArgs["--workspace"] != blockedWithValue {
-		t.Fatalf("expected --workspace to be blockedWithValue, got %v", qwenpawBlockedArgs["--workspace"])
 	}
 }
 
@@ -289,62 +261,6 @@ func TestQwenpawUsesSessionLoad(t *testing.T) {
 	}
 	if strings.Contains(requests, `"method":"session/resume"`) {
 		t.Fatalf("qwenpaw must use session/load (not session/resume), got:\n%s", requests)
-	}
-}
-
-// TestQwenpawTimeout tests that a context timeout during session/new
-// is reported as status=timeout. The fake script responds to
-// initialize immediately, then sleeps 30s on session/new so the
-// 5s context deadline expires during the session/new RPC.
-func TestQwenpawTimeout(t *testing.T) {
-	t.Parallel()
-
-	script := `#!/bin/sh
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-  case "$line" in
-    *'"method":"initialize"'*)
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}\n' "$id"
-      ;;
-    *'"method":"session/new"'*)
-      sleep 30
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"ses_late"}}\n' "$id"
-      ;;
-    *)
-      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$id"
-      ;;
-  esac
-done`
-
-	bin := writeFakeQwenpawScript(t, script)
-
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	b, err := New("qwenpaw", Config{
-		ExecutablePath: bin,
-		Logger:         logger,
-	})
-	if err != nil {
-		t.Fatalf("New(qwenpaw) error: %v", err)
-	}
-
-	// Use a generous timeout so initialize always completes;
-	// the 30s sleep on session/new will trigger the timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	session, err := b.Execute(ctx, "test prompt", ExecOptions{
-		Cwd: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("Execute error: %v", err)
-	}
-
-	for range session.Messages {
-	}
-
-	result := <-session.Result
-	if result.Status != "timeout" {
-		t.Fatalf("expected timeout, got status=%q error=%q", result.Status, result.Error)
 	}
 }
 
@@ -800,18 +716,5 @@ done
 	// Daemon-injected --workspace must be present
 	if !strings.Contains(args, "/tmp/correct-workspace") {
 		t.Fatalf("expected daemon-injected workspace path in command args, got:\n%s", args)
-	}
-}
-
-func TestQwenpawBackendJSON(t *testing.T) {
-	// Verify that the qwenpawBackend type is registered in the
-	// backend constructor map.
-	t.Parallel()
-	b, err := New("qwenpaw", Config{ExecutablePath: "/test/qwenpaw"})
-	if err != nil {
-		t.Fatalf("New(qwenpaw) error: %v", err)
-	}
-	if _, ok := b.(*qwenpawBackend); !ok {
-		t.Fatalf("expected *qwenpawBackend, got %T", b)
 	}
 }

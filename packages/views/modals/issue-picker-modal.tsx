@@ -1,5 +1,8 @@
 "use client";
 
+import { issueStatusCategory } from "@multica/core/issues";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Issue } from "@multica/core/types";
 import { api } from "@multica/core/api";
@@ -33,6 +36,7 @@ export function IssuePickerModal({
   onSelect,
 }: IssuePickerModalProps) {
   const { t } = useT("modals");
+  const { colorOf, iconOf } = useIssueStatuses(useWorkspaceId());
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Issue[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -124,7 +128,13 @@ export function IssuePickerModal({
                     onOpenChange(false);
                   }}
                 >
-                  <StatusIcon status={issue.status} className="h-3.5 w-3.5 shrink-0" />
+                  <StatusIcon
+                    status={issue.status}
+                    color={colorOf(issue.status)}
+                    icon={iconOf(issue.status)}
+                    category={issueStatusCategory(issue) ?? undefined}
+                    className="h-3.5 w-3.5 shrink-0"
+                  />
                   <span className="text-muted-foreground shrink-0">{issue.identifier}</span>
                   <span className="truncate">{issue.title}</span>
                 </CommandItem>

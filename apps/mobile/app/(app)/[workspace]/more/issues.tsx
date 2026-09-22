@@ -25,7 +25,10 @@ import { Pressable, SectionList, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import type { Issue, IssuePriority, IssueStatus } from "@multica/core/types";
+import type {
+  IssuePriority,
+  IssueStatus,
+} from "@multica/core/types";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 // Header chrome (back + "Issues" title) comes from the parent Stack
@@ -42,16 +45,12 @@ import {
   type IssuesScope,
 } from "@/data/stores/issues-view-store";
 import { useClearFiltersOnWorkspaceChange } from "@/lib/use-clear-filters-on-workspace-change";
-import {
-  BOARD_STATUSES,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
-} from "@/lib/issue-status";
+import { PRIORITY_LABEL } from "@/lib/issue-status";
+import { useIssueStatuses } from "@/lib/use-issue-statuses";
+import { groupIssuesByStatus } from "@/lib/group-issues-by-status";
 import { filterIssues } from "@/lib/filter-issues";
 import { useColorScheme } from "@/lib/use-color-scheme";
 import { THEME } from "@/lib/theme";
-
-type IssueSection = { status: IssueStatus; data: Issue[] };
 
 // Scope tab definitions. Mirrors web `issuesScopeStore`. Counts are NOT
 // rendered on the pill labels — web's `IssuesHeader` doesn't show them
@@ -90,6 +89,10 @@ export default function IssuesPage() {
     issueListOptions(wsId),
   );
 
+  // Only the active-filter chips need the catalog — sections group on the
+  // category the server already resolved onto each issue. (MUL-6243)
+  const catalog = useIssueStatuses();
+
   const allIssues = data ?? [];
 
   // Scope pre-filter — mirrors web `issues-page.tsx:90-94`. Applied before
@@ -111,24 +114,7 @@ export default function IssuesPage() {
     [scopedIssues, statusFilters, priorityFilters],
   );
 
-  // Section grouping uses BOARD_STATUSES (cancelled excluded) — matches web
-  // `issues-page.tsx:117-125`.
-  const sections = useMemo<IssueSection[]>(() => {
-    if (filtered.length === 0) return [];
-    const byStatus = new Map<IssueStatus, Issue[]>();
-    for (const issue of filtered) {
-      const list = byStatus.get(issue.status);
-      if (list) list.push(issue);
-      else byStatus.set(issue.status, [issue]);
-    }
-    const visibleStatuses =
-      statusFilters.length > 0
-        ? BOARD_STATUSES.filter((s) => statusFilters.includes(s))
-        : BOARD_STATUSES;
-    return visibleStatuses
-      .map((status) => ({ status, data: byStatus.get(status) ?? [] }))
-      .filter((s) => s.data.length > 0);
-  }, [filtered, statusFilters]);
+  const sections = useMemo(() => groupIssuesByStatus(filtered, catalog.statuses), [filtered, catalog.statuses]);
 
   const hasActiveFilters =
     statusFilters.length > 0 || priorityFilters.length > 0;
@@ -148,6 +134,7 @@ export default function IssuesPage() {
         <ActiveFilterChips
           statusFilters={statusFilters}
           priorityFilters={priorityFilters}
+          statusLabelOf={catalog.labelOf}
           onClearStatus={(s) =>
             useIssuesViewStore.getState().toggleStatusFilter(s)
           }
@@ -185,7 +172,10 @@ export default function IssuesPage() {
             <View className="h-px bg-border ml-4" />
           )}
           renderSectionHeader={({ section }) => (
-            <SectionHeader status={section.status} count={section.data.length} />
+            <SectionHeader
+              status={section.status}
+              count={section.data.length}
+            />
           )}
           contentContainerClassName="pb-6"
           renderItem={({ item }) => (
@@ -298,11 +288,14 @@ function ScopeToolbar<S extends string>({
 function ActiveFilterChips({
   statusFilters,
   priorityFilters,
+  statusLabelOf,
   onClearStatus,
   onClearPriority,
 }: {
   statusFilters: IssueStatus[];
   priorityFilters: IssuePriority[];
+  /** Resolves a status KEY — which can be a custom one — to its label. */
+  statusLabelOf: (statusKey: string) => string;
   onClearStatus: (s: IssueStatus) => void;
   onClearPriority: (p: IssuePriority) => void;
 }) {
@@ -311,7 +304,7 @@ function ActiveFilterChips({
       {statusFilters.map((s) => (
         <Chip
           key={`s-${s}`}
-          label={STATUS_LABEL[s]}
+          label={statusLabelOf(s)}
           onClear={() => onClearStatus(s)}
         />
       ))}
@@ -343,6 +336,7 @@ function Chip({ label, onClear }: { label: string; onClear: () => void }) {
   );
 }
 
+// The section header names its concrete built-in or custom status.
 function SectionHeader({
   status,
   count,
@@ -350,11 +344,13 @@ function SectionHeader({
   status: IssueStatus;
   count: number;
 }) {
+  const catalog = useIssueStatuses();
   return (
     <View className="flex-row items-center gap-2 px-4 py-2 bg-background">
-      <StatusIcon status={status} size={14} />
+      {/* Category keys resolve to their canonical lifecycle glyph. */}
+      <StatusIcon status={status} category={catalog.categoryOf(status)} icon={catalog.iconOf(status)} color={catalog.colorOf(status)} size={14} />
       <Text className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-        {STATUS_LABEL[status]}
+        {catalog.labelOf(status)}
       </Text>
       <Text className="text-xs text-muted-foreground/60">{count}</Text>
     </View>

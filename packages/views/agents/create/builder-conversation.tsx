@@ -23,6 +23,7 @@ import {
   ChatMessageSkeleton,
 } from "../../chat/components/chat-message-list";
 import { useT } from "../../i18n";
+import { AppLink } from "../../navigation";
 import { ModelDropdown } from "../components/model-dropdown";
 import { RuntimePicker } from "../components/runtime-picker";
 
@@ -42,7 +43,7 @@ export function BuilderSetup({
   starting,
   error,
   onStart,
-  onConnectRuntime,
+  connectRuntimeHref,
   banner,
 }: {
   draft: AgentDraft;
@@ -55,7 +56,7 @@ export function BuilderSetup({
   starting: boolean;
   error: string | null;
   onStart: () => void;
-  onConnectRuntime: () => void;
+  connectRuntimeHref: string;
   /** Rendered above the card: the way back to an unfinished conversation, so
    *  this screen cannot silently start yet another one. */
   banner?: ReactNode;
@@ -116,7 +117,10 @@ export function BuilderSetup({
               {t(($) => $.creation_studio.builder.start)}
             </Button>
           ) : (
-            <Button onClick={onConnectRuntime}>
+            <Button
+              render={<AppLink href={connectRuntimeHref} />}
+              nativeButton={false}
+            >
               {t(($) => $.creation_studio.builder.connect_runtime)}
             </Button>
           )}
@@ -172,9 +176,6 @@ export function BuilderConversation({
           <h2 className="truncate text-body font-semibold">
             {t(($) => $.creation_studio.builder.chat_title)}
           </h2>
-          <p className="truncate text-caption text-muted-foreground">
-            {t(($) => $.creation_studio.builder.chat_hint)}
-          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 text-caption text-muted-foreground">
           <span

@@ -43,6 +43,7 @@ import {
   ActivityHeatmap,
 } from "./charts";
 import { CustomPricingDialog } from "./custom-pricing-dialog";
+import { ProviderUsageBlock } from "./provider-usage-block";
 import { useT } from "../../i18n";
 
 // Single source of truth for the period selector. KPIs, the When-chart, the
@@ -130,6 +131,7 @@ function Segmented<T extends string | number>({
 
 export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   const { t, i18n } = useT("runtimes");
+  const wsId = useWorkspaceId();
   const runtimeId = runtime.id;
   // Reports render in the viewer's timezone — the backend slices the UTC
   // hourly rollup on the same `tz` we pass here, so every frontend window
@@ -146,8 +148,26 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   // subscribe on their own and pass pricings as a memo dep there.
   useCustomPricingStore((s) => s.pricings);
 
-  if (loading) return <UsageSkeleton />;
-  if (usage.length === 0) return <UsageEmpty />;
+  const planLimits = (
+    <ProviderUsageBlock wsId={wsId} runtimeId={runtimeId} />
+  );
+
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        {planLimits}
+        <UsageSkeleton />
+      </div>
+    );
+  }
+  if (usage.length === 0) {
+    return (
+      <div className="space-y-5">
+        {planLimits}
+        <UsageEmpty />
+      </div>
+    );
+  }
 
   // Slice the cached 180-day window into the user's selected sub-window AND
   // the immediately prior window of equal length. The KPI delta ("+18% vs
@@ -180,6 +200,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
 
   return (
     <div className="space-y-5">
+      {planLimits}
       {/* Page-wide period selector. Lives at the top because it controls
           basically everything below: the KPI numbers and labels, the
           daily / weekly chart window, and the cost-by aggregations. The
@@ -224,7 +245,14 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           if the user has saved overrides, so those rates remain editable. */}
       <CustomPricingBar usage={filtered} />
 
-      <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
+      {/* Stacks below `sm`, matching the Analytics tabs' KPI rows. Three
+          fixed columns leave ~70px of content width inside `KpiCard`'s p-5 at
+          a 390px viewport, and a `text-display` value ("960.1M", "$1,234.56")
+          is far wider than that — it painted past the card's right edge
+          instead of wrapping, because a number is one unbreakable token
+          (#7836). `divide-y` carries the separator through the stacked
+          orientation so the row still reads as one grouped card. */}
+      <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
           label={t(($) => $.usage.kpi_cost_label, { days })}
           value={
@@ -366,7 +394,10 @@ function WhenChart({
   );
 
   const metricToggleVisible = !showHeatmap;
-  const legendIncludesCacheRead = !showHeatmap && chartMetric === "tokens";
+  // Both metrics carry a cache-read segment now: the token stack always did,
+  // and the cost stack gained one when it stopped dropping cache-read spend
+  // from its total (MUL-6334).
+  const legendIncludesCacheRead = !showHeatmap;
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -608,15 +639,15 @@ function CustomPricingBar({ usage }: { usage: RuntimeUsage[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Chart legend — three coloured dots + labels, rendered in WhenChart's
-// header so the chart body keeps its full vertical real estate.
+// Chart legend — one coloured dot + label per stack segment, rendered in
+// WhenChart's header so the chart body keeps its full vertical real estate.
 // ---------------------------------------------------------------------------
 
 function ChartLegend({ includeCacheRead = false }: { includeCacheRead?: boolean }) {
   const { t } = useT("runtimes");
-  // Token-stack mode adds a cache-read pip between output and cache-write to
-  // match the four-segment stack of DailyTokensChart. The cost chart drops
-  // cache-read because at typical pricing it'd be ~0 px tall in the stack.
+  // The cache-read pip sits between output and cache-write, matching the
+  // segment order both the token and the cost stacks draw. Only the heatmap,
+  // which has no stack at all, leaves it out.
   const items = [
     { label: t(($) => $.usage.legend_input), color: "var(--color-chart-1)" },
     { label: t(($) => $.usage.legend_output), color: "var(--color-chart-2)" },

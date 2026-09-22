@@ -12,6 +12,7 @@ export interface Reaction {
   actor_id: string;
   emoji: string;
   created_at: string;
+  comment_revision?: number;
 }
 
 export interface Comment {
@@ -26,6 +27,10 @@ export interface Comment {
   attachments: import("./attachment").Attachment[];
   created_at: string;
   updated_at: string;
+  /** Monotonic server revision; absent when connected to an older backend. */
+  revision?: number;
+  /** Parent issue revision after this semantic comment mutation. */
+  issue_revision?: number;
   resolved_at: string | null;
   resolved_by_type: CommentAuthorType | null;
   resolved_by_id: string | null;
@@ -35,6 +40,10 @@ export interface Comment {
   // keys off the id rather than a dedicated `type`, because `type` is
   // client-supplied on the generic comment endpoint and would be forgeable.
   quick_action_id?: string | null;
+  // Set only on a comment deleted while it still had replies (#8296): the
+  // server keeps an empty tombstone so the replies keep their parent. Older
+  // servers omit it.
+  deleted_at?: string | null;
   // Per-target result of every explicit @agent / @squad mention in this comment
   // (MUL-4525 §2). Present only on create/edit responses; older servers omit it.
   trigger_outcomes?: CommentTriggerOutcome[];

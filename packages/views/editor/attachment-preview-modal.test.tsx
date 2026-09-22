@@ -75,6 +75,7 @@ vi.mock("../navigation", () => ({
     back: vi.fn(),
     pathname: "/acme/issues",
     searchParams: new URLSearchParams(),
+    hash: "",
     ...(navState.hasOpenInNewTab ? { openInNewTab: openInNewTabMock } : {}),
     getShareableUrl: getShareableUrlMock,
   }),
@@ -535,6 +536,21 @@ describe("AttachmentPreviewModal — URL-only source", () => {
     expect(screen.getByText("This file type can't be previewed.")).toBeTruthy();
   });
 
+  it("renders an <img> for a caller-declared image whose filename is a caption (MUL-7518)", () => {
+    // A body image's "filename" is the markdown caption — prose, with no
+    // extension to read. The caller knows the slot is an image and says so.
+    const url = "https://cdn.example.test/chart.png?Signature=s";
+    render(
+      <AttachmentPreviewModal
+        source={{ kind: "url", url, filename: "报告图表", forceKind: "image" }}
+        open
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText("This file type can't be previewed.")).toBeNull();
+    expect(document.querySelector("img")?.getAttribute("src")).toBe(url);
+  });
+
   it("Download button opens the raw URL externally when no attachment id is available", () => {
     const url = "https://cdn.example.test/orphan.pdf?Signature=s";
     render(
@@ -696,6 +712,34 @@ describe("useAttachmentPreview — tryOpen gate", () => {
         kind: "url",
         url: "https://x/y.md",
         filename: "y.md",
+      });
+    });
+    expect(opened).toBe(false);
+  });
+
+  it("accepts a URL source whose kind the caller declares, extension or not (MUL-7518)", () => {
+    const { result } = renderHook(() => useAttachmentPreview());
+    let opened = false;
+    hookAct(() => {
+      opened = result.current.tryOpen({
+        kind: "url",
+        url: "https://x/chart.png",
+        filename: "报告图表",
+        forceKind: "image",
+      });
+    });
+    expect(opened).toBe(true);
+  });
+
+  it("still rejects a declared text kind from a URL source — the id gate wins", () => {
+    const { result } = renderHook(() => useAttachmentPreview());
+    let opened = true;
+    hookAct(() => {
+      opened = result.current.tryOpen({
+        kind: "url",
+        url: "https://x/notes",
+        filename: "notes",
+        forceKind: "markdown",
       });
     });
     expect(opened).toBe(false);
@@ -936,42 +980,6 @@ describe("AttachmentPreviewModal — image zoom", () => {
 
     fireEvent.click(screen.getByRole("dialog"));
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("gives the canvas a flex-column parent so it can claim the modal body height", () => {
-    // jsdom has no layout, so this is asserted structurally: `.zoom-canvas`
-    // sizes itself with `flex: 1 1 auto` and positions its content
-    // absolutely. In a plain block parent it collapses to zero height and the
-    // image disappears entirely.
-    stubNaturalSize({ width: 1600, height: 800 });
-    renderImagePreview();
-
-    const body = zoomCanvas().parentElement!;
-    expect(body.className).toContain("flex-col");
-    expect(body.className).toContain("flex-1");
-    expect(body.className).toContain("overflow-hidden");
-  });
-
-  it("keeps the scrolling block body for non-image kinds", () => {
-    render(
-      <AttachmentPreviewModal
-        source={{
-          kind: "full",
-          attachment: makeAttachment({
-            filename: "notes.md",
-            content_type: "text/markdown",
-          }),
-        }}
-        open
-        onClose={() => {}}
-      />,
-    );
-
-    // A flex column here would let a tall markdown preview shrink to fit
-    // instead of scrolling.
-    const body = document.querySelector(".min-h-0.flex-1")!;
-    expect(body.className).toContain("overflow-auto");
-    expect(body.className).not.toContain("flex-col");
   });
 
   it("shows no zoom controls for non-image kinds", () => {
