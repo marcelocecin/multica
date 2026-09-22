@@ -23,7 +23,7 @@ func TestChannelMessageFromCallback_GroupKeepsSenderDistinctFromChat(t *testing.
 	mc.From.UserID = "SENDER_USERID"
 	mc.Text.Content = "hello"
 
-	msg := channelMessageFromCallback("bot-1", "", mc, "req-1")
+	msg := channelMessageFromCallback("bot-1", "", mc, "hello", "req-1")
 
 	if msg.Source.ChatType != channel.ChatTypeGroup {
 		t.Errorf("chat type = %v, want group", msg.Source.ChatType)
@@ -43,7 +43,7 @@ func TestChannelMessageFromCallback_P2PFallsBackChatIDToSender(t *testing.T) {
 	mc := aibotMsgCallback{MsgID: "m2", ChatID: "", ChatType: "single", MsgType: "text"}
 	mc.From.UserID = "USER_A"
 
-	msg := channelMessageFromCallback("bot-1", "", mc, "req-2")
+	msg := channelMessageFromCallback("bot-1", "", mc, "", "req-2")
 
 	if msg.Source.ChatType != channel.ChatTypeP2P {
 		t.Errorf("chat type = %v, want p2p", msg.Source.ChatType)
@@ -67,7 +67,7 @@ func TestChannelMessageFromCallback_P2PMentionIsProseNotACommand(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, content string }{
 		{"issue directive after a colleague's name", "@李雷 /issue 帮我问问他"},
-		{"fresh-session directive after a colleague's name", "@李雷 /new 的排期你问一下"},
+		{"fresh-session directive after a colleague's name", "@李雷 /clear 的排期你问一下"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -77,7 +77,7 @@ func TestChannelMessageFromCallback_P2PMentionIsProseNotACommand(t *testing.T) {
 
 			// A configured display name must not change this either: it is the
 			// chat type that decides, not whose name is at the front.
-			msg := channelMessageFromCallback("bot-1", "Multica Bot", mc, "req-p2p")
+			msg := channelMessageFromCallback("bot-1", "Multica Bot", mc, tc.content, "req-p2p")
 
 			if msg.CommandText != tc.content {
 				t.Errorf("CommandText = %q, want %q untouched — in a 1:1 the leading @ is a colleague's "+
@@ -107,7 +107,7 @@ func TestChannelMessageFromCallback_P2PCommandStillWorks(t *testing.T) {
 	mc.From.UserID = "USER_A"
 	mc.Text.Content = "/issue 登录失败"
 
-	msg := channelMessageFromCallback("bot-1", "Multica Bot", mc, "req-p2p-cmd")
+	msg := channelMessageFromCallback("bot-1", "Multica Bot", mc, mc.Text.Content, "req-p2p-cmd")
 
 	cmd, ok := engine.ParseIssueCommand(msg.CommandText)
 	if !ok {
@@ -121,7 +121,7 @@ func TestChannelMessageFromCallback_P2PCommandStillWorks(t *testing.T) {
 	}
 }
 
-func TestChannelMsgType_NonTextIsUnknown(t *testing.T) {
+func TestChannelMsgType_Normalization(t *testing.T) {
 	t.Parallel()
 	cases := map[string]channel.MsgType{
 		"text":  channel.MsgTypeText,
@@ -130,9 +130,11 @@ func TestChannelMsgType_NonTextIsUnknown(t *testing.T) {
 		"voice": channel.MsgTypeAudio,
 		"audio": channel.MsgTypeAudio,
 		"video": channel.MsgTypeVideo,
-		// "mixed" must NOT map to Text: dispatchFrame drops non-text before
-		// normalization, so mapping it to Text was dead and misleading.
-		"mixed":     channel.MsgTypeUnknown,
+		// 图文混排 is Text: ownText renders it to text runs plus a
+		// placeholder per attachment, and the attachments travel separately
+		// as MediaRefs. Same treatment Lark gives `post`
+		// (lark/feishu_channel.go:167).
+		"mixed":     channel.MsgTypeText,
 		"":          channel.MsgTypeUnknown,
 		"greetings": channel.MsgTypeUnknown,
 	}
@@ -165,33 +167,141 @@ func TestSendMsgTextBody_ShapeAndChatTypeValidation(t *testing.T) {
 	}
 }
 
-// TestIssueCommandDetectionMatchesTheEngine: the adapter sets SkipAgentRun
-// from its own answer, and the engine files the issue from its own. Any input
-// they disagree on is a message that reaches nobody — no agent run because
-// this side said "command", no issue because that side said "prose".
-//
-// U+3000 is the case that mattered: it is what a Chinese IME emits for the
-// space bar in full-width mode, so it opens real messages.
-func TestIssueCommandDetectionMatchesTheEngine(t *testing.T) {
-	cases := []string{
-		"/issue the login redirect is broken",
-		"/issue",
-		"/issue\tthe title after a tab",
-		"  /issue leading halfwidth spaces",
-		"　/issue after an ideographic space",
-		"　　/issue after two",
-		"/issuewithoutspace",
-		"not a command at all",
-		"",
-		"\n\n/issue after blank lines",
-		"prose first\n/issue not at the front",
-		" /issue after a non-breaking space",
+// TestQuotedContext pins how the message a sender replied to is rendered into
+// the body: labelled, blockquoted on every line, and empty when there is
+// nothing to show.
+func TestQuotedContext(t *testing.T) {
+	t.Parallel()
+
+	textQuote := func(content string) quotedMessage {
+		var q quotedMessage
+		q.MsgType = "text"
+		q.Text.Content = content
+		return q
 	}
-	for _, body := range cases {
-		_, engineSays := engine.ParseIssueCommand(body)
-		if got := isIssueCommand(body); got != engineSays {
-			t.Errorf("isIssueCommand(%q) = %v but engine.ParseIssueCommand says %v — SkipAgentRun and the issue decision disagree, so this message reaches nobody",
-				body, got, engineSays)
+
+	t.Run("a quoted line is labelled and blockquoted", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgType: "text", Quote: textQuote("这是今日的测试情况")}
+		if got, want := mc.quotedContext(), "> [Quote] 这是今日的测试情况"; got != want {
+			t.Errorf("quotedContext() = %q, want %q", got, want)
 		}
-	}
+	})
+
+	t.Run("every line of a multi-line quote stays inside the block", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgType: "text", Quote: textQuote("第一行\n第二行")}
+		if got, want := mc.quotedContext(), "> [Quote] 第一行\n> 第二行"; got != want {
+			t.Errorf("quotedContext() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a quoted attachment shows the same placeholder a sent one does", func(t *testing.T) {
+		t.Parallel()
+		var q quotedMessage
+		q.MsgType = "image"
+		q.Image = mediaBody{URL: "https://example.invalid/i", AESKey: "k"}
+		mc := aibotMsgCallback{MsgType: "text", Quote: q}
+		if got, want := mc.quotedContext(), "> [Quote] [Image]"; got != want {
+			t.Errorf("quotedContext() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a quoted mixed message renders its runs", func(t *testing.T) {
+		t.Parallel()
+		var q quotedMessage
+		q.MsgType = "mixed"
+		var words mixedItem
+		words.MsgType = "text"
+		words.Text.Content = "看这个"
+		shot := mixedItem{MsgType: "image", Image: mediaBody{URL: "https://example.invalid/i", AESKey: "k"}}
+		q.Mixed.MsgItem = []mixedItem{words, shot}
+		mc := aibotMsgCallback{MsgType: "text", Quote: q}
+		if got, want := mc.quotedContext(), "> [Quote] 看这个\n> [Image]"; got != want {
+			t.Errorf("quotedContext() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("no quote renders nothing", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgType: "text"}
+		mc.Text.Content = "hello"
+		if got := mc.quotedContext(); got != "" {
+			t.Errorf("quotedContext() = %q, want empty", got)
+		}
+	})
+
+	t.Run("a quote of a kind we do not know renders nothing", func(t *testing.T) {
+		t.Parallel()
+		var q quotedMessage
+		q.MsgType = "location"
+		mc := aibotMsgCallback{MsgType: "text", Quote: q}
+		if got := mc.quotedContext(); got != "" {
+			t.Errorf("quotedContext() = %q, want empty", got)
+		}
+	})
+}
+
+// TestChannelMessageFromCallback_QuoteLeadsBodyButNotCommand is the contract
+// that makes the quote safe to add: the agent sees what was pointed at, and
+// the command parsers still only ever see the line the sender typed here.
+func TestChannelMessageFromCallback_QuoteLeadsBodyButNotCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the quote leads the stored body", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgID: "m1", ChatID: "TUSER", ChatType: "single", MsgType: "text"}
+		mc.From.UserID = "TUSER"
+		mc.Text.Content = "这个怎么处理"
+		mc.Quote.MsgType = "text"
+		mc.Quote.Text.Content = "生产库连接数打满了"
+
+		msg := channelMessageFromCallback("bot-1", "", mc, mc.Text.Content, "req-q1")
+
+		want := "> [Quote] 生产库连接数打满了\n\n这个怎么处理"
+		if msg.Text != want {
+			t.Errorf("Text = %q, want %q", msg.Text, want)
+		}
+		// The sender typed three words; that is all the parsers may read.
+		if msg.CommandText != "这个怎么处理" {
+			t.Errorf("CommandText = %q, want the sender's own line", msg.CommandText)
+		}
+	})
+
+	t.Run("quoting somebody else's /issue does not file an issue", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgID: "m2", ChatID: "TUSER", ChatType: "single", MsgType: "text"}
+		mc.From.UserID = "TUSER"
+		mc.Text.Content = "他这条是什么意思"
+		mc.Quote.MsgType = "text"
+		mc.Quote.Text.Content = "/issue 登录坏了"
+
+		msg := channelMessageFromCallback("bot-1", "", mc, mc.Text.Content, "req-q2")
+
+		if _, ok := engine.ParseIssueCommand(msg.CommandText); ok {
+			t.Fatalf("CommandText %q parsed as an issue command", msg.CommandText)
+		}
+		if msg.SkipAgentRun {
+			t.Error("SkipAgentRun set: the quoted command was read as this sender's")
+		}
+	})
+
+	t.Run("a control command keeps the quote in its first turn", func(t *testing.T) {
+		t.Parallel()
+		mc := aibotMsgCallback{MsgID: "m3", ChatID: "TUSER", ChatType: "single", MsgType: "text"}
+		mc.From.UserID = "TUSER"
+		mc.Text.Content = "/new 帮我看看这个"
+		mc.Quote.MsgType = "text"
+		mc.Quote.Text.Content = "生产库连接数打满了"
+
+		msg := channelMessageFromCallback("bot-1", "", mc, mc.Text.Content, "req-q3")
+
+		want := "> [Quote] 生产库连接数打满了\n\n帮我看看这个"
+		if msg.Text != want {
+			t.Errorf("Text = %q, want the directive gone and the quote kept", msg.Text)
+		}
+		if _, ok := engine.ParseNewChatCommand(msg.CommandText); !ok {
+			t.Errorf("CommandText = %q, want /new still parseable", msg.CommandText)
+		}
+	})
 }

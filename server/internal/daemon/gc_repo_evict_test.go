@@ -53,6 +53,8 @@ func runRepoGC(d *Daemon) *gcStats {
 // TestEvictRepoCache_RemovesIdleDetachedRepo is the happy path: a cache no
 // workspace claims, with no worktrees, untouched past the TTL.
 func TestEvictRepoCache_RemovesIdleDetachedRepo(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = 24 * time.Hour
 
@@ -78,11 +80,35 @@ func TestEvictRepoCache_RemovesIdleDetachedRepo(t *testing.T) {
 	}
 }
 
+func TestEvictRepoCacheRunsWhileAnotherTaskIsActive(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	d.cfg.GCRepoTTL = 24 * time.Hour
+
+	wsID := "11111111-1111-1111-1111-111111111111"
+	barePath := newEvictTestRepo(t, d, wsID, testRepoURL)
+	writeLastUsed(t, barePath, time.Now().Add(-48*time.Hour))
+	d.activeTasks.Add(1)
+	defer d.activeTasks.Add(-1)
+
+	stats := runRepoGC(d)
+
+	if _, err := os.Stat(barePath); !os.IsNotExist(err) {
+		t.Fatalf("expected eligible detached repo to be evicted while another task is active, stat err = %v", err)
+	}
+	if stats.repoCachesReclaimed != 1 {
+		t.Errorf("repo_caches_reclaimed = %d, want 1", stats.repoCachesReclaimed)
+	}
+}
+
 // TestEvictRepoCache_KeepsRepoStillAttachedToWorkspace is the load-bearing
 // guard. Sync re-clones every listed repo that is missing whenever a workspace
 // registers, which happens on every daemon start — so evicting a repo the
 // workspace still claims would just pay a full re-clone on the next restart.
 func TestEvictRepoCache_KeepsRepoStillAttachedToWorkspace(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = 24 * time.Hour
 
@@ -104,6 +130,8 @@ func TestEvictRepoCache_KeepsRepoStillAttachedToWorkspace(t *testing.T) {
 // TestEvictRepoCache_KeepsRepoWithLiveWorktree guards the checkout that would
 // break: a linked worktree's .git points into this directory.
 func TestEvictRepoCache_KeepsRepoWithLiveWorktree(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = 24 * time.Hour
 
@@ -129,6 +157,8 @@ func TestEvictRepoCache_KeepsRepoWithLiveWorktree(t *testing.T) {
 // "infinitely old" would wipe every repo cache on the machine in the first
 // cycle after an upgrade and force a full re-clone of each.
 func TestEvictRepoCache_MissingStampIsBackfilledNotEvicted(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = time.Nanosecond // any real stamp would be past this
 
@@ -157,6 +187,8 @@ func TestEvictRepoCache_MissingStampIsBackfilledNotEvicted(t *testing.T) {
 
 // TestEvictRepoCache_DisabledWhenTTLZero keeps the feature opt-out.
 func TestEvictRepoCache_DisabledWhenTTLZero(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = 0
 
@@ -177,6 +209,8 @@ func TestEvictRepoCache_DisabledWhenTTLZero(t *testing.T) {
 // TestEvictRepoCache_KeepsRecentlyUsedRepo covers the ordinary in-use case: a
 // detached repo that a task checked out inside the TTL window.
 func TestEvictRepoCache_KeepsRecentlyUsedRepo(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCRepoTTL = 24 * time.Hour
 
@@ -198,6 +232,8 @@ func TestEvictRepoCache_KeepsRecentlyUsedRepo(t *testing.T) {
 // repo's own block carries a `bare` marker and must not be counted, or every
 // cache would look permanently in use.
 func TestLinkedWorktreeCount(t *testing.T) {
+	t.Parallel()
+
 	d := newGCTestDaemon(t, http.NewServeMux())
 	barePath := newEvictTestRepo(t, d, "11111111-1111-1111-1111-111111111111", testRepoURL)
 

@@ -12,7 +12,10 @@ import {
   AGENT_MAX_CONCURRENT_TASKS_MAX,
   AGENT_MAX_CONCURRENT_TASKS_MIN,
 } from "@multica/core/agents";
-import { runtimeModelsOptions } from "@multica/core/runtimes";
+import {
+  isRuntimeUsableForUser,
+  runtimeModelsOptions,
+} from "@multica/core/runtimes";
 import { isImeComposing } from "@multica/core/utils";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
@@ -115,13 +118,16 @@ export function AgentDetailInspector({
   });
 
   const isOnline = runtime?.status === "online";
+  const canReadRuntime =
+    runtime != null && isRuntimeUsableForUser(runtime, currentUserId);
+  const canDiscoverRuntimeModels = isOnline && canReadRuntime;
   const nameInvalid = name.trim().length === 0;
 
   // Same query the Thinking / Speed fields already use, so switching model
   // costs no extra request. `null` = not authoritative (offline runtime, still
   // loading, or discovery failed) and must not trigger any clearing.
   const modelsQuery = useQuery(
-    runtimeModelsOptions(isOnline ? agent.runtime_id : null),
+    runtimeModelsOptions(canDiscoverRuntimeModels ? agent.runtime_id : null),
   );
   const modelCatalog = useMemo<ModelCatalog>(
     () =>
@@ -136,20 +142,20 @@ export function AgentDetailInspector({
     (model: string) =>
       update(
         buildModelChangeUpdate({
+          provider: runtime?.provider ?? "",
           model,
           thinkingLevel: agent.thinking_level ?? "",
           serviceTier: agent.service_tier ?? "",
           catalog: modelCatalog,
         }),
       ),
-    [agent.service_tier, agent.thinking_level, modelCatalog, update],
+    [agent.service_tier, agent.thinking_level, modelCatalog, runtime?.provider, update],
   );
 
   return (
     <div className="space-y-8">
       <SettingsSection
         title={t(($) => $.inspector.section_profile)}
-        description={t(($) => $.inspector.section_profile_hint)}
         action={
           <SettingsSaveState
             status={profileAutoSave.status}
@@ -162,7 +168,6 @@ export function AgentDetailInspector({
         <SettingsCard>
           <SettingsRow
             label={t(($) => $.inspector.avatar_label)}
-            description={t(($) => $.inspector.avatar_hint)}
             size="none"
           >
             <div className="flex justify-start sm:justify-end">
@@ -232,7 +237,6 @@ export function AgentDetailInspector({
 
       <SettingsSection
         title={t(($) => $.inspector.section_execution)}
-        description={t(($) => $.inspector.section_execution_hint)}
       >
         <SettingsCard>
           <SettingsRow
@@ -268,7 +272,7 @@ export function AgentDetailInspector({
               variant="field"
               showLabel={false}
               runtimeId={agent.runtime_id}
-              runtimeOnline={!!isOnline}
+              runtimeOnline={canDiscoverRuntimeModels}
               value={agent.model ?? ""}
               canEdit={canEdit}
               onChange={handleModelChange}
@@ -277,7 +281,7 @@ export function AgentDetailInspector({
           <ThinkingSettingField
             label={t(($) => $.inspector.prop_thinking)}
             runtimeId={agent.runtime_id}
-            runtimeOnline={!!isOnline}
+            runtimeOnline={canDiscoverRuntimeModels}
             provider={runtime?.provider ?? ""}
             model={agent.model ?? ""}
             value={agent.thinking_level ?? ""}
@@ -289,7 +293,8 @@ export function AgentDetailInspector({
           <ServiceTierSettingField
             label={t(($) => $.inspector.prop_speed)}
             runtimeId={agent.runtime_id}
-            runtimeOnline={!!isOnline}
+            runtimeOnline={canDiscoverRuntimeModels}
+            provider={runtime?.provider ?? ""}
             model={agent.model ?? ""}
             value={agent.service_tier ?? ""}
             canEdit={canEdit}

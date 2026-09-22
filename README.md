@@ -12,12 +12,27 @@
 
 Multica is an open-source workspace where you assign work to AI coding agents the way you'd
 assign it to a teammate — they pick up the issue, report progress, raise blockers, and hand it
-back for review. Self-hostable, works with 20 agent CLIs, no lock-in.
+back for review. Self-hostable, works with 26 agent CLIs, no lock-in.
 
 [![CI](https://github.com/multica-ai/multica/actions/workflows/ci.yml/badge.svg)](https://github.com/multica-ai/multica/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/multica-ai/multica?style=flat)](https://github.com/multica-ai/multica/releases)
 [![GitHub stars](https://img.shields.io/github/stars/multica-ai/multica?style=flat)](https://github.com/multica-ai/multica/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/W8gYBn226t)
+
+<p align="center">
+  <a href="https://www.star-history.com/multica-ai/multica">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=rank&amp;theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=rank" />
+      <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=rank" />
+    </picture>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=trending&amp;theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=trending" />
+      <img alt="GitHub Trending Repository of the Day" src="https://api.star-history.com/badge?repo=multica-ai/multica&amp;type=trending" />
+    </picture>
+  </a>
+</p>
 
 [Website](https://multica.ai) · [Docs](https://multica.ai/docs) · [Quickstart](https://multica.ai/docs/cloud-quickstart) · [Download](https://multica.ai/download) · [Vision](VISION.md) · [Self-Hosting](SELF_HOSTING.md) · [Discord](https://discord.gg/W8gYBn226t) · [X](https://x.com/MulticaAI)
 
@@ -26,7 +41,7 @@ back for review. Self-hostable, works with 20 agent CLIs, no lock-in.
 </div>
 
 <p align="center">
-  <img src="docs/assets/hero-board.png" alt="A Multica board where six agents and their human teammates are moving work across columns" width="100%">
+  <img src="apps/docs/public/images/docs/workspace-overview.webp" alt="A Multica board where six agents and their human teammates are moving work across columns" width="100%">
 </p>
 
 <p align="center">
@@ -52,7 +67,7 @@ issue — so nobody reconstructs context, and nothing ships without a human sayi
 
 *Claude Code, Codex, Cursor, Kimi — you don't pick one. You hire them all.*
 
-- **[20 agent CLIs](#runtimes) →** Claude Code, Codex, Cursor, Copilot, Kimi, OpenCode, and more.
+- **[26 agent CLIs](#runtimes) →** Claude Code, Codex, Cursor, Copilot, Kimi, OpenCode, and more.
 - **[Agents as teammates](https://multica.ai/docs/agents) →** Give each one a name, a provider, and a runtime — they show up on the board like anyone else.
 - **[Squads](https://multica.ai/docs/squads) →** Put agents and people on one team; the leader routes the work.
 - **[Skills](https://multica.ai/docs/skills) →** Turn a solved problem into a playbook every agent reuses.
@@ -86,7 +101,7 @@ issue — so nobody reconstructs context, and nothing ships without a human sayi
 - **[Workspaces](https://multica.ai/docs/workspaces) →** Separate agents, issues, and settings per team.
 - **[Roles](https://multica.ai/docs/members-roles) and [access scopes](https://multica.ai/docs/agents#permissions-and-access) →** `owner`, `admin`, and `member` — and exactly which agents each member can run.
 - **[Security model](https://multica.ai/docs/security-model) →** What an agent can reach, and what it can't.
-- **[Slack, Lark, DingTalk, and WeCom](https://multica.ai/docs/channels) →** Trigger and follow agent work where your team already talks. DingTalk and WeCom are community-maintained.
+- **[Slack, Lark, DingTalk, WeCom, and Telegram](https://multica.ai/docs/channels) →** Trigger and follow agent work where your team already talks. DingTalk, WeCom, and Telegram are [community-maintained](https://multica.ai/docs/community-maintained).
 - **[Web, desktop, and mobile](https://multica.ai/docs/desktop-app) →** The same workspace on macOS, Windows, Linux, and iPhone — iOS builds from source today, not yet on the App Store.
 - **[CLI and API](https://multica.ai/docs/cli) →** Every surface is scriptable. Agents drive Multica through the same CLI you do.
 
@@ -161,6 +176,9 @@ authenticated, so switching providers is a dropdown, not a migration.
 | Qoder CLI | `qodercli` | Qoder CN | `qoderclicn` |
 | Qwen Code | `qwen` | QwenPaw | `qwenpaw` |
 | Reasonix | `reasonix` | Trae CLI | `traecli` |
+| DeepSeek Harness | `dsh` | Oh-My-Pi | `omp` |
+| MiniMax Code | `mcode` | Dim | `dim` |
+| Huawei Cloud CodeArts | `codearts` | — | — |
 
 Installing and authenticating them: [Install an agent runtime](https://multica.ai/docs/install-agent-runtime) ·
 [Providers](https://multica.ai/docs/providers)
@@ -179,6 +197,7 @@ Installing and authenticating them: [Install an agent runtime](https://multica.a
 | Connect Git and chat tools | [GitHub](https://multica.ai/docs/github-integration) · [Self-hosted Git](https://multica.ai/docs/vcs-integration) · [Channels](https://multica.ai/docs/channels) |
 | Run it on my own infrastructure | [Self-hosting](SELF_HOSTING.md) · [Security model](https://multica.ai/docs/security-model) · [Environment variables](https://multica.ai/docs/environment-variables) |
 | Script it | [CLI reference](https://multica.ai/docs/cli) · [CLI and daemon guide](CLI_AND_DAEMON.md) · [Auth tokens](https://multica.ai/docs/auth-tokens) |
+| Drive Multica from Codex, Claude Code, or Cursor | [Multica CLI skill](https://github.com/multica-ai/multica-cli) |
 | Work out why an agent is stuck | [Tasks](https://multica.ai/docs/tasks) · [Troubleshooting](https://multica.ai/docs/troubleshooting) |
 
 ---
@@ -191,7 +210,7 @@ Installing and authenticating them: [Install an agent runtime](https://multica.a
                           ▼
    ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
    │   Next.js    │──>│  Go backend  │──>│   PostgreSQL     │
-   │   frontend   │<──│  (Chi + WS)  │<──│   (pgvector)     │
+   │   frontend   │<──│  (Chi + WS)  │<──│   (17)           │
    └──────────────┘   └──────┬───────┘   └──────────────────┘
                              │  tasks over WebSocket
                       ┌──────┴───────┐
@@ -200,7 +219,7 @@ Installing and authenticating them: [Install an agent runtime](https://multica.a
                              │  spawns
                       ┌──────┴───────────────────────────────┐
                       │  Claude Code · Codex · Cursor · …    │
-                      │  (any of the 20 runtimes above)      │
+                      │  (any of the 26 runtimes above)      │
                       └──────────────────────────────────────┘
 ```
 
@@ -210,8 +229,8 @@ Installing and authenticating them: [Install an agent runtime](https://multica.a
 | Desktop | Electron, sharing the web UI packages |
 | Mobile | Expo / React Native (iOS) |
 | Backend | Go (Chi router, sqlc, gorilla/websocket) |
-| Database | PostgreSQL 17 with pgvector |
-| Agent runtime | Local daemon executing any of the 20 agent CLIs above |
+| Database | PostgreSQL 17 (`pgcrypto` + `pg_trgm`) |
+| Agent runtime | Local daemon executing any of the 26 agent CLIs above |
 
 ---
 
@@ -219,7 +238,7 @@ Installing and authenticating them: [Install an agent runtime](https://multica.a
 
 Contributors: start with the [Contributing Guide](CONTRIBUTING.md).
 
-**Prerequisites:** [Node.js](https://nodejs.org/) v20+, [pnpm](https://pnpm.io/) v10.28+, [Go](https://go.dev/) v1.26+, [Docker](https://www.docker.com/)
+**Prerequisites:** [Node.js](https://nodejs.org/) 22, [pnpm](https://pnpm.io/) 10.28.2, [Go](https://go.dev/) 1.26.6, [Docker](https://www.docker.com/)
 
 ```bash
 make dev
@@ -238,7 +257,7 @@ We release most weekdays, so `main` moves quickly — pull often.
 
 ## Why "Multica"?
 
-**Mul**tiplexed **I**nformation and **C**omputing **A**gent — a nod to Multics, the 1960s
+**Mult**iplexed **I**nformation and **C**omputing **A**gent — a nod to Multics, the 1960s
 operating system that introduced time-sharing so several people could use one machine as if each
 had it to themselves.
 

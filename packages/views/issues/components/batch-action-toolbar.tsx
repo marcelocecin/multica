@@ -131,6 +131,7 @@ export function BatchActionToolbar({
       // start" box — apply directly, matching handleBatchStatus's backlog short-
       // circuit. A mixed selection still routes through the modal: the non-backlog
       // issues will trigger and need confirmation.
+      // Only the fixed Backlog key parks work; custom Unstarted does not.
       const allBacklog = selectedIssues.every((i) => i.status === "backlog");
       if (!allBacklog) {
         openModal("issue-run-confirm", {
@@ -212,7 +213,7 @@ export function BatchActionToolbar({
           <button
             type="button"
             onClick={clear}
-            className="rounded p-0.5 hover:bg-accent transition-colors"
+            className="rounded-xs p-0.5 hover:bg-accent transition-colors"
           >
             <X className="size-3.5 text-muted-foreground" />
           </button>
