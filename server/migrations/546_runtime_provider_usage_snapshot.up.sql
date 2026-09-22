@@ -1,3 +1,5 @@
+-- 545 is intentionally unused. Upstream main already owns 535–544, so this
+-- table is 546 and its concurrent indexes are 547 and 548.
 -- Derived plan-limit snapshots reported by a local daemon. Tokens, cookies,
 -- and auth.json contents are not columns on purpose: the daemon uploads
 -- only provider, window, percent, reset, plan, and collected_at.

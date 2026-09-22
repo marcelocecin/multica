@@ -338,6 +338,10 @@ var concurrentIndexCleanups = map[string]string{
 	"482_agent_task_queue_telemetry_started_index":              "idx_agent_task_queue_telemetry_started",
 	"484_issue_triage_state_index":                              "idx_issue_triage_state",
 	"537_issue_duplicate_of_index":                              "idx_issue_duplicate_of",
+	// 545 is intentionally unused. Upstream took 535–544, so the provider
+	// usage table is 546 and its concurrent indexes are 547 and 548.
+	"547_runtime_provider_usage_snapshot_key":                   "idx_runtime_provider_usage_snapshot_key",
+	"548_runtime_provider_usage_snapshot_workspace":             "idx_runtime_provider_usage_snapshot_workspace",
 }
 
 // concurrentDownIndexCleanups covers every migration whose down direction
