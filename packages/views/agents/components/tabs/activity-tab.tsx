@@ -55,6 +55,8 @@ const RECENT_SKELETON_ROWS = 4;
 interface ActivityTabProps {
   agent: Agent;
   showPerformance?: boolean;
+  /** Protocol family of the agent's runtime. Other vendors stay hidden. */
+  provider?: string;
 }
 
 /**
@@ -70,7 +72,11 @@ interface ActivityTabProps {
  * the workspace 7d activity buckets for the trend), so opening this tab
  * adds no extra fetches once the page is hydrated.
  */
-export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps) {
+export function ActivityTab({
+  agent,
+  showPerformance = true,
+  provider,
+}: ActivityTabProps) {
   const wsId = useWorkspaceId();
 
   const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
@@ -175,7 +181,11 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {agent.runtime_id ? (
-        <ProviderUsageBlock wsId={wsId} runtimeId={agent.runtime_id} />
+        <ProviderUsageBlock
+          wsId={wsId}
+          runtimeId={agent.runtime_id}
+          provider={provider}
+        />
       ) : null}
       <NowSection tasks={activeTasks} issueMap={issueMap} agent={agent} />
       {showPerformance && (

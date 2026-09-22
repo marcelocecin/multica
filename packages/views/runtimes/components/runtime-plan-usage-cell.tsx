@@ -14,6 +14,19 @@ export function runtimeHasPlanUsage(provider: string | undefined): boolean {
   return PLAN_LIMIT_PROVIDERS.has(normalizeProvider(provider));
 }
 
+/** Snapshots for this runtime's protocol family. Other vendors on the same
+ * machine, and families with no plan window, stay out of the detail view. */
+export function planUsageSnapshotsForProvider(
+  provider: string | undefined,
+  providers: readonly ProviderUsageSnapshot[] | undefined,
+): ProviderUsageSnapshot[] {
+  const key = normalizeProvider(provider);
+  if (!runtimeHasPlanUsage(key)) return [];
+  return (providers ?? []).filter(
+    (item) => normalizeProvider(item.provider) === key,
+  );
+}
+
 interface RuntimePlanUsageCellProps {
   provider: string | undefined;
   providers: readonly ProviderUsageSnapshot[] | undefined;
@@ -56,10 +69,7 @@ function planUsageHeadline(
   now: number,
 ): { percent: number; detail: string } | null {
   const key = normalizeProvider(provider);
-  if (!runtimeHasPlanUsage(key)) return null;
-  const snapshot = (providers ?? []).find(
-    (item) => normalizeProvider(item.provider) === key,
-  );
+  const snapshot = planUsageSnapshotsForProvider(key, providers)[0];
   const windows = snapshot?.windows ?? [];
   const preferred = headlineWindowId(key);
   const headline =

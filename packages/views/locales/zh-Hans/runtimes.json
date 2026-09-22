@@ -449,7 +449,7 @@
     "no_data": "还没有使用数据",
     "provider_limits": {
       "title": "套餐用量",
-      "description": "这台机器上已登录的 Claude、Cursor 和 Codex 会话的已用百分比。",
+      "description": "此运行时已登录套餐的已用百分比。",
       "empty": "这台机器上没有本地登录会话。",
       "waiting": "这台机器还没有上报套餐用量。",
       "plan": "套餐",

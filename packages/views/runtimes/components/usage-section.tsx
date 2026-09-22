@@ -149,7 +149,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   useCustomPricingStore((s) => s.pricings);
 
   const planLimits = (
-    <ProviderUsageBlock wsId={wsId} runtimeId={runtimeId} />
+    <ProviderUsageBlock
+      wsId={wsId}
+      runtimeId={runtimeId}
+      provider={runtime.provider}
+    />
   );
 
   if (loading) {
