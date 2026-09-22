@@ -1759,6 +1759,15 @@ export const ProviderUsageResponseSchema = z.object({
 
 export const EMPTY_PROVIDER_USAGE_RESPONSE = { providers: [] };
 
+export const RuntimeProviderUsageListSchema = z.object({
+  runtimes: z.array(z.object({
+    runtime_id: z.string().default(""),
+    providers: z.array(ProviderUsageSnapshotSchema).default([]),
+  }).loose()).default([]),
+}).loose();
+
+export const EMPTY_RUNTIME_PROVIDER_USAGE_LIST = { runtimes: [] };
+
 // ---------------------------------------------------------------------------
 // Agent task responses. The base object stays loose so daemon/runtime fields
 // can drift while task-list consumers still validate the fields they render.
