@@ -465,7 +465,7 @@
     "no_data": "No usage data yet",
     "provider_limits": {
       "title": "Plan usage",
-      "description": "Percent used on this machine's signed-in Claude, Cursor, and Codex sessions.",
+      "description": "Percent used on this runtime's signed-in plan.",
       "empty": "No local session on this machine.",
       "waiting": "No plan usage reported from this machine yet.",
       "plan": "Plan",

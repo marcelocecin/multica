@@ -5,16 +5,23 @@ import type { ProviderUsageSnapshot, ProviderUsageWindow } from "@multica/core/t
 import { runtimeProviderUsageOptions } from "@multica/core/runtimes/queries";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { useT } from "../../i18n";
+import { planUsageSnapshotsForProvider } from "./runtime-plan-usage-cell";
 
 interface ProviderUsageBlockProps {
   wsId: string;
   runtimeId: string;
+  /** Protocol family of the open runtime (`claude`, `codex`, `cursor`, …). */
+  provider: string | undefined;
 }
 
-export function ProviderUsageBlock({ wsId, runtimeId }: ProviderUsageBlockProps) {
+export function ProviderUsageBlock({
+  wsId,
+  runtimeId,
+  provider,
+}: ProviderUsageBlockProps) {
   const { t, i18n } = useT("runtimes");
   const { data, isLoading } = useQuery(runtimeProviderUsageOptions(wsId, runtimeId));
-  const providers = data?.providers ?? [];
+  const providers = planUsageSnapshotsForProvider(provider, data?.providers);
   const locale = i18n.resolvedLanguage ?? i18n.language;
 
   return (
