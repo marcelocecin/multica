@@ -289,6 +289,7 @@
     "col_owner": "所有者",
     "col_agents": "エージェント",
     "col_cost": "コスト · 7 日",
+    "col_usage": "使用量",
     "col_cli": "CLI",
     "cost_delta_flat": "変化なし",
     "cli_managed_badge": "デスクトップ",

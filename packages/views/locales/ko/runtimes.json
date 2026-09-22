@@ -289,6 +289,7 @@
     "col_owner": "소유자",
     "col_agents": "에이전트",
     "col_cost": "비용 · 7일",
+    "col_usage": "사용량",
     "col_cli": "CLI",
     "cost_delta_flat": "변화 없음",
     "cli_managed_badge": "데스크톱",

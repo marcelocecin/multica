@@ -289,6 +289,7 @@
     "col_owner": "所有者",
     "col_agents": "智能体",
     "col_cost": "费用 · 7 天",
+    "col_usage": "用量",
     "col_cli": "CLI",
     "cost_delta_flat": "持平",
     "cli_managed_badge": "桌面端",

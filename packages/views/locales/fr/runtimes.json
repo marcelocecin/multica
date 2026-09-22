@@ -302,6 +302,7 @@
     "col_owner": "Propriétaire",
     "col_agents": "Agents",
     "col_cost": "Coût · 7 j",
+    "col_usage": "Utilisation",
     "col_cli": "CLI",
     "cost_delta_flat": "stable",
     "cli_managed_badge": "Desktop",

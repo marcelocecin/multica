@@ -122,3 +122,57 @@ func (q *Queries) ListRuntimeProviderUsage(ctx context.Context, arg ListRuntimeP
 	}
 	return items, nil
 }
+
+const listRuntimeProviderUsageByRuntimeIDs = `-- name: ListRuntimeProviderUsageByRuntimeIDs :many
+SELECT runtime_id, provider, window_id, percent_used, resets_at, plan_name, collected_at, reason_code
+FROM runtime_provider_usage_snapshot
+WHERE workspace_id = $1 AND runtime_id = ANY($2::uuid[])
+ORDER BY runtime_id, provider, window_id
+`
+
+type ListRuntimeProviderUsageByRuntimeIDsParams struct {
+	WorkspaceID pgtype.UUID   `json:"workspace_id"`
+	RuntimeIds  []pgtype.UUID `json:"runtime_ids"`
+}
+
+type ListRuntimeProviderUsageByRuntimeIDsRow struct {
+	RuntimeID   pgtype.UUID        `json:"runtime_id"`
+	Provider    string             `json:"provider"`
+	WindowID    string             `json:"window_id"`
+	PercentUsed pgtype.Float8      `json:"percent_used"`
+	ResetsAt    pgtype.Timestamptz `json:"resets_at"`
+	PlanName    pgtype.Text        `json:"plan_name"`
+	CollectedAt pgtype.Timestamptz `json:"collected_at"`
+	ReasonCode  pgtype.Text        `json:"reason_code"`
+}
+
+// One read for the runtimes shown on a machine. Same derived columns as
+// ListRuntimeProviderUsage; runtime_id lets the caller group them.
+func (q *Queries) ListRuntimeProviderUsageByRuntimeIDs(ctx context.Context, arg ListRuntimeProviderUsageByRuntimeIDsParams) ([]ListRuntimeProviderUsageByRuntimeIDsRow, error) {
+	rows, err := q.db.Query(ctx, listRuntimeProviderUsageByRuntimeIDs, arg.WorkspaceID, arg.RuntimeIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRuntimeProviderUsageByRuntimeIDsRow{}
+	for rows.Next() {
+		var i ListRuntimeProviderUsageByRuntimeIDsRow
+		if err := rows.Scan(
+			&i.RuntimeID,
+			&i.Provider,
+			&i.WindowID,
+			&i.PercentUsed,
+			&i.ResetsAt,
+			&i.PlanName,
+			&i.CollectedAt,
+			&i.ReasonCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
