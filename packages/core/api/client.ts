@@ -69,6 +69,7 @@ import type {
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
   RuntimeUsage,
+  ProviderUsageResponse,
   IssueUsageSummary,
   RuntimeHourlyActivity,
   RuntimeUsageByAgent,
@@ -327,6 +328,8 @@ import {
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  ProviderUsageResponseSchema,
+  EMPTY_PROVIDER_USAGE_RESPONSE,
   SearchIssuesResponseSchema,
   SearchProjectsResponseSchema,
   SquadSchema,
@@ -2283,6 +2286,18 @@ export class ApiClient {
     await this.fetch(
       `/api/workspaces/${workspaceId}/runtime-profiles/${profileId}`,
       { method: "DELETE" },
+    );
+  }
+
+  async getRuntimeProviderUsage(runtimeId: string): Promise<ProviderUsageResponse> {
+    const raw = await this.fetch<unknown>(
+      `/api/runtimes/${runtimeId}/provider-usage`,
+    );
+    return parseWithFallback(
+      raw,
+      ProviderUsageResponseSchema,
+      EMPTY_PROVIDER_USAGE_RESPONSE,
+      { endpoint: "GET /api/runtimes/:id/provider-usage" },
     );
   }
 

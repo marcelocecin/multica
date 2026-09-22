@@ -461,6 +461,32 @@
     "table_output": "Output",
     "table_cache_r": "Cache R",
     "table_cache_w": "Cache W",
-    "no_data": "No usage data yet"
+    "no_data": "No usage data yet",
+    "provider_limits": {
+      "title": "Plan usage",
+      "description": "Percent used on this machine's signed-in Claude, Cursor, and Codex sessions.",
+      "empty": "No local session on this machine.",
+      "waiting": "No plan usage reported from this machine yet.",
+      "plan": "Plan",
+      "collected": "Collected {{time}}",
+      "resets": "Resets {{time}}",
+      "used": "{{pct}}% used",
+      "provider_claude": "Claude Code",
+      "provider_cursor": "Cursor",
+      "provider_codex": "Codex",
+      "window_session": "Session",
+      "window_weekly_all": "Weekly",
+      "window_auto": "Auto",
+      "window_api": "API",
+      "window_primary": "Primary",
+      "window_secondary": "Secondary",
+      "reason_not_logged_in": "Not signed in on this machine.",
+      "reason_api_key_only": "This Codex login is an API key, so plan limits are not available.",
+      "reason_unauthorized": "The local session was rejected. Sign in again in the CLI or editor.",
+      "reason_cli_unavailable": "The CLI is not installed on this machine.",
+      "reason_session_unavailable": "No local editor session was found on this machine.",
+      "reason_unsupported": "Plan limits cannot be read on this machine.",
+      "reason_unknown": "Plan limits are unavailable."
+    }
   }
 }

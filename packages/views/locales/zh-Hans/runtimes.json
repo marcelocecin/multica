@@ -445,6 +445,32 @@
     "table_output": "输出",
     "table_cache_r": "缓存读",
     "table_cache_w": "缓存写",
-    "no_data": "还没有使用数据"
+    "no_data": "还没有使用数据",
+    "provider_limits": {
+      "title": "套餐用量",
+      "description": "这台机器上已登录的 Claude、Cursor 和 Codex 会话的已用百分比。",
+      "empty": "这台机器上没有本地登录会话。",
+      "waiting": "这台机器还没有上报套餐用量。",
+      "plan": "套餐",
+      "collected": "采集于 {{time}}",
+      "resets": "{{time}} 重置",
+      "used": "已用 {{pct}}%",
+      "provider_claude": "Claude Code",
+      "provider_cursor": "Cursor",
+      "provider_codex": "Codex",
+      "window_session": "会话",
+      "window_weekly_all": "每周",
+      "window_auto": "Auto",
+      "window_api": "API",
+      "window_primary": "主要窗口",
+      "window_secondary": "次要窗口",
+      "reason_not_logged_in": "这台机器上尚未登录。",
+      "reason_api_key_only": "此 Codex 登录使用的是 API key，无法读取套餐额度。",
+      "reason_unauthorized": "本地会话已被拒绝。请在 CLI 或编辑器中重新登录。",
+      "reason_cli_unavailable": "这台机器上没有安装对应的 CLI。",
+      "reason_session_unavailable": "这台机器上没有找到本地编辑器会话。",
+      "reason_unsupported": "这台机器上无法读取套餐额度。",
+      "reason_unknown": "套餐额度暂不可用。"
+    }
   }
 }

@@ -445,6 +445,32 @@
     "table_output": "出力",
     "table_cache_r": "キャッシュ R",
     "table_cache_w": "キャッシュ W",
-    "no_data": "まだ使用量データがありません"
+    "no_data": "まだ使用量データがありません",
+    "provider_limits": {
+      "title": "プラン使用量",
+      "description": "このマシンでログイン済みの Claude、Cursor、Codex セッションの使用率です。",
+      "empty": "このマシンにローカルセッションはありません。",
+      "waiting": "このマシンからプラン使用量はまだ報告されていません。",
+      "plan": "プラン",
+      "collected": "{{time}} に取得",
+      "resets": "{{time}} にリセット",
+      "used": "{{pct}}% 使用",
+      "provider_claude": "Claude Code",
+      "provider_cursor": "Cursor",
+      "provider_codex": "Codex",
+      "window_session": "セッション",
+      "window_weekly_all": "週間",
+      "window_auto": "Auto",
+      "window_api": "API",
+      "window_primary": "プライマリ",
+      "window_secondary": "セカンダリ",
+      "reason_not_logged_in": "このマシンではログインしていません。",
+      "reason_api_key_only": "この Codex ログインは API キーのため、プラン上限は表示できません。",
+      "reason_unauthorized": "ローカルセッションが拒否されました。CLI またはエディタで再ログインしてください。",
+      "reason_cli_unavailable": "このマシンに CLI がインストールされていません。",
+      "reason_session_unavailable": "このマシンでローカルのエディタセッションが見つかりません。",
+      "reason_unsupported": "このマシンではプラン上限を読み取れません。",
+      "reason_unknown": "プラン上限は利用できません。"
+    }
   }
 }
