@@ -53,6 +53,8 @@ import {
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  ProviderUsageResponseSchema,
+  EMPTY_PROVIDER_USAGE_RESPONSE,
   SendChatMessageResponseSchema,
   SquadListSchema,
   SquadSchema,
@@ -1181,6 +1183,34 @@ describe("dashboard + runtime usage schema drift", () => {
     expect(RuntimeHourlyActivityListSchema.parse([{ hour: 9 }])[0]?.count).toBe(0);
     expect(RuntimeUsageByAgentListSchema.parse([{ model: "x" }])[0]?.agent_id).toBe("");
     expect(RuntimeUsageByHourListSchema.parse([{ hour: 9 }])[0]?.model).toBe("");
+  });
+
+  it("falls back when a provider-usage payload is malformed and keeps a partial snapshot", () => {
+    expect(
+      parseWithFallback(
+        { providers: "nope" },
+        ProviderUsageResponseSchema,
+        EMPTY_PROVIDER_USAGE_RESPONSE,
+        { endpoint: "GET /api/runtimes/:id/provider-usage" },
+      ),
+    ).toEqual(EMPTY_PROVIDER_USAGE_RESPONSE);
+    expect(
+      parseWithFallback(
+        null,
+        ProviderUsageResponseSchema,
+        EMPTY_PROVIDER_USAGE_RESPONSE,
+        { endpoint: "GET /api/runtimes/:id/provider-usage" },
+      ).providers,
+    ).toEqual([]);
+
+    const partial = ProviderUsageResponseSchema.parse({
+      providers: [{ provider: "claude" }, { plan_name: "Pro", windows: [{ percent_used: 12 }] }],
+    });
+    expect(partial.providers[0]?.windows).toBeUndefined();
+    expect(partial.providers[0]?.provider).toBe("claude");
+    expect(partial.providers[1]?.provider).toBe("");
+    expect(partial.providers[1]?.windows?.[0]?.id).toBe("");
+    expect(partial.providers[1]?.windows?.[0]?.percent_used).toBe(12);
   });
 
   it("defaults a missing provider to \"\" so an older server's rows still price by bare model", () => {

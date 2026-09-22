@@ -37,6 +37,7 @@ import { AttributionBadge } from "../../../issues/components/attribution-badge";
 import { taskStatusConfig } from "../../config";
 import { cancellationActorLabel, cancelReasonLabel, failureReasonLabel } from "./task-failure";
 import { Sparkline } from "../sparkline";
+import { ProviderUsageBlock } from "../../../runtimes/components/provider-usage-block";
 import { useT, useTimeAgo } from "../../../i18n";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -173,6 +174,9 @@ export function ActivityTab({ agent, showPerformance = true }: ActivityTabProps)
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
+      {agent.runtime_id ? (
+        <ProviderUsageBlock wsId={wsId} runtimeId={agent.runtime_id} />
+      ) : null}
       <NowSection tasks={activeTasks} issueMap={issueMap} agent={agent} />
       {showPerformance && (
         <Last30dSection activity={activity} avgDurationMs={avgDurationMs} />
