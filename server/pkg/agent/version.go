@@ -40,7 +40,8 @@ var MinVersions = map[string]string{
 	// pass silently, so the assumption is enforced rather than only documented.
 	// 0.7.1 is also the only version smoke-tested against a live account.
 	// getAgentDir, ENV_AGENT_DIR, CONFIG_DIR_NAME and _resolveRlmMaxDepth were
-	// diffed through v0.9.5, and the only divergence is v0.9.4 expanding a
+	// diffed through v0.9.5 and prime-agent main as of 2026-09-23, and the
+	// only divergence is v0.9.4 expanding a
 	// Windows `~\` value that earlier versions leave relative; primeAgentDirsFor
 	// checks both readings, so the floor admits nothing the gate cannot see.
 	"prime": "0.7.1",
