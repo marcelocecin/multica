@@ -1,7 +1,10 @@
 import { githubUrl, discordUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
-export function createZhDict(allowSignup: boolean): LandingDict {
+export function createZhDict(
+  allowSignup: boolean,
+  docsHref: string,
+): LandingDict {
   return {
   header: {
     github: "GitHub",
@@ -241,7 +244,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       resources: {
         label: "\u8d44\u6e90",
         links: [
-          { label: "\u6587\u6863", href: "/docs/zh" },
+          { label: "\u6587\u6863", href: docsHref },
           { label: "API", href: githubUrl },
           { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
           { label: "Discord", href: discordUrl },
@@ -293,6 +296,41 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       fixes: "问题修复",
     },
     entries: [
+      {
+        version: "0.5.2",
+        date: "2026-09-23",
+        title: "运行中任务追加指令、Issue 重复标记、任务运行更可靠",
+        changes: [],
+        features: [
+          "Claude Code、Codex 的任务在运行过程中也能补充新的指导。",
+          "可以在状态选择器里把 Issue 标记为重复，一键跳回原 Issue，列表里也看得到。",
+          "命令行创建 Issue 时可以同时写好自定义属性。",
+          "在 Telegram 群里 @ 智能体，它已经知道近期的对话。",
+          "下载页可以直接获取 Windows 上的命令行安装方式。",
+        ],
+        improvements: [
+          "OpenClaw 的每个智能体都在你为它配置的目录里工作。",
+          "创建 Issue 时上传的附件会出现在描述里。",
+          "Lark 机器人不回话时，能看到投递卡在哪里。",
+          "Issue 的定时唤醒按你自己的时区显示。",
+          "进入任务对应的 GitHub PR 更快了。",
+          "运行状态的动效更流畅，也更省资源。",
+        ],
+        fixes: [
+          "Codex 的新模型一发布就出现在选择器里。",
+          "命令行登录连不上服务器时会明确告知，不再一直等。",
+          "受邀成员在限制注册的自托管环境里也能完成注册。",
+          "启动没有确认的任务会被重新拉起，不会卡住。",
+          "取消任务立刻响应，线程里的回复也会送到对应的智能体。",
+          "移动端断线后会自己重新连上。",
+          "桌面端工具栏的间距恢复正常。",
+          "Windows 安装脚本在 PowerShell 5.1 上也能运行。",
+          "法语界面的确认框不再出现横向滚动。",
+          "Autopilot 创建的 Issue 会记录在活动里。",
+          "访客身份的小队负责人会被正常唤醒并接手工作。",
+          "企业微信的回复没送回来时，能查出是哪里丢的。",
+        ],
+      },
       {
         version: "0.5.1",
         date: "2026-09-21",
@@ -3585,6 +3623,9 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       title: "想用 CLI？",
       sub: "适合服务器、远程开发机、无图形界面环境。底层 daemon 与 Desktop 相同，通过终端安装。",
       installLabel: "安装",
+      platformGroup: "选择你的系统",
+      platformMacosLinux: "macOS / Linux",
+      platformWindows: "Windows",
       startLabel: "启动 daemon",
       sshNote: "已经在服务器上？通过 SSH 执行同样的命令即可。",
       copyLabel: "复制",

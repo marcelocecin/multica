@@ -6,7 +6,6 @@ Product contracts the runtime brief does not fully encode.
 - [Reading a linked PR's real state](#reading-a-linked-prs-real-state)
 - [Custom properties: typed workflow state](#custom-properties-typed-workflow-state)
 - [Status changes have server side effects](#status-changes-have-server-side-effects)
-- [Claim ownership without duplicating a run](#claim-ownership-without-duplicating-a-run)
 - [Who else is running right now](#who-else-is-running-right-now)
 - [Sub-issues: todo starts work now, backlog parks it](#sub-issues-todo-starts-work-now-backlog-parks-it)
 - [Incorrect to correct](#incorrect-to-correct)
@@ -277,27 +276,17 @@ archived statuses remain readable via an explicit status filter.
   `done` it enqueues no new agent work, but it does **not** stop tasks already in
   flight — a run in progress keeps going. To stop a running task, cancel the
   task itself.
+  A cancelled issue may also be marked as a **duplicate** of another issue
+  (`GET /api/issues/<id>/duplicates` shows both sides; issue responses carry
+  the original as `duplicate_of` with its id, identifier, title and status
+  while the mark counts). Moving it to any
+  status other than `cancelled` removes the mark, so reopen a duplicate only
+  when it is really separate work. Marking logs `duplicate_marked` on the
+  duplicate and `duplicate_added` on the original; removing the mark logs
+  `duplicate_unmarked` / `duplicate_removed` (`multica issue timeline --action`).
 - **Failed issue-triggered tasks** may roll an issue from `in_progress` back to
   `todo` when no active task / retry remains — that is the main server-owned
   status write on the agent-run path.
-
-## Claim ownership without duplicating a run
-
-Assigning an active issue to an agent normally starts a run. When the work is
-already underway and the write only records ownership or progress, pass
-`--no-start` on every command in that flow:
-
-```bash
-multica issue assign <issue-id> --to-id <agent-id> --no-start
-multica issue update <issue-id> --assignee-id <agent-id> --no-start
-multica issue status <issue-id> in_progress --no-start
-```
-
-Before self-assigning, check the target issue's comment history for an existing
-claim. The server also suppresses a trusted self-assignment when the exact
-target `(issue, agent)` pair already has a non-terminal task, but it
-deliberately keeps same-agent handoffs to a fresh issue starting runs:
-cross-issue serial chains and triage batches rely on that.
 
 ## Who else is running right now
 

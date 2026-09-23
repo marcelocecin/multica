@@ -10,6 +10,7 @@ import type {
   CreateIssueRequest,
   MoveIssueRequest,
   UpdateIssueRequest,
+  IssueDuplicates,
   GroupedIssuesResponse,
   ListIssuesResponse,
   SearchIssuesResponse,
@@ -259,6 +260,7 @@ import {
   SendChatMessageResponseSchema,
   StartMikaOnboardingResponseSchema,
   ChildIssuesResponseSchema,
+  IssueDuplicatesResponseSchema,
   ChildIssueProgressResponseSchema,
   CommentsListSchema,
   CommentTriggerPreviewSchema,
@@ -544,6 +546,30 @@ function assertAgentConversationStartersWriteSupported(data: {
     throw new Error(
       "This server version does not support agent conversation starters. Update the server before saving them.",
     );
+  }
+}
+
+function requestedIssueCreateProperties(
+  data: CreateIssueRequest,
+): NonNullable<CreateIssueRequest["properties"]> | undefined {
+  const properties = data.properties;
+  return properties && Object.keys(properties).length > 0 ? properties : undefined;
+}
+
+function assertIssueCreatePropertiesSnapshot(
+  requested: NonNullable<CreateIssueRequest["properties"]> | undefined,
+  issue: Issue,
+): void {
+  if (!requested) return;
+  for (const propertyId of Object.keys(requested)) {
+    // The server may canonicalize a valid request (trim a URL, order and
+    // de-duplicate a multi-select, normalize an actor UUID). Presence is the
+    // integrity signal here; IssueSchema has already validated the value type.
+    if (!Object.prototype.hasOwnProperty.call(issue.properties, propertyId)) {
+      throw new Error(
+        `Issue ${issue.identifier || issue.id} was created, but the server did not confirm its custom properties. Review the issue before retrying.`,
+      );
+    }
   }
 }
 
@@ -1276,6 +1302,15 @@ export class ApiClient {
   }
 
   async createIssue(data: CreateIssueRequest): Promise<Issue> {
+    const requestedProperties = requestedIssueCreateProperties(data);
+    if (requestedProperties) {
+      const config = await this.getConfig();
+      if (config.issue_create_properties_supported !== true) {
+        throw new Error(
+          "This server version does not support atomic custom properties on issue creation. Update the server before creating this issue.",
+        );
+      }
+    }
     // Parse through a schema (not a raw cast): the create modal keys its
     // label-attach compatibility fallback off `labels` being absent vs a
     // validated Label[], so an unvalidated wrong shape must not slip through.
@@ -1295,6 +1330,7 @@ export class ApiClient {
     if (!issue) {
       throw new Error();
     }
+    assertIssueCreatePropertiesSnapshot(requestedProperties, issue);
     return issue;
   }
 
@@ -1339,6 +1375,16 @@ export class ApiClient {
     data: CreateCommentSubIssueRequest,
   ): Promise<Issue | { task_id: string }> {
     try {
+      const requestedProperties =
+        data.mode === "manual" ? requestedIssueCreateProperties(data.issue) : undefined;
+      if (requestedProperties) {
+        const config = await this.getConfig();
+        if (config.issue_create_properties_supported !== true) {
+          throw new Error(
+            "This server version does not support atomic custom properties on issue creation. Update the server before creating this issue.",
+          );
+        }
+      }
       const raw = await this.fetch<unknown>(`/api/comments/${anchorCommentId}/sub-issues`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -1348,6 +1394,7 @@ export class ApiClient {
           endpoint: "POST /api/comments/:id/sub-issues (manual)",
         });
         if (!issue) throw new Error("Invalid sub-issue response");
+        assertIssueCreatePropertiesSnapshot(requestedProperties, issue);
         return issue;
       }
       const task = parseWithFallback<{ task_id: string } | null>(
@@ -1406,6 +1453,16 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async listIssueDuplicates(id: string): Promise<IssueDuplicates> {
+    const raw = await this.fetch<unknown>(`/api/issues/${id}/duplicates`);
+    return parseWithFallback(
+      raw,
+      IssueDuplicatesResponseSchema,
+      { duplicate_of: null, duplicates: [] },
+      { endpoint: "GET /api/issues/:id/duplicates" },
+    );
   }
 
   async listChildIssues(id: string): Promise<{ issues: Issue[] }> {
@@ -2632,6 +2689,24 @@ export class ApiClient {
     const raw = await this.fetch<unknown>(`/api/issues/${issueId}/task-runs`);
     return parseWithFallback<AgentTask[]>(raw, AgentTaskListSchema, [], {
       endpoint: "GET /api/issues/:id/task-runs",
+    });
+  }
+
+  async createTaskSupplement(issueId: string, taskId: string, content: string, clientRequestId: string): Promise<Comment> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/tasks/${taskId}/supplements`, {
+      method: "POST",
+      body: JSON.stringify({ content, client_request_id: clientRequestId }),
+    });
+    const comment = parseWithFallback<Comment>(raw, CommentSchema, EMPTY_COMMENT, {
+      endpoint: "POST /api/issues/:id/tasks/:taskId/supplements",
+    });
+    if (!comment.id) throw new Error("Invalid additional-message response");
+    return comment;
+  }
+
+  async retryTaskSupplement(issueId: string, taskId: string, commentId: string): Promise<void> {
+    await this.fetch(`/api/issues/${issueId}/tasks/${taskId}/supplements/${commentId}/retry`, {
+      method: "POST",
     });
   }
 

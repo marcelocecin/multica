@@ -1,7 +1,10 @@
 import { githubUrl, discordUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
-export function createEnDict(allowSignup: boolean): LandingDict {
+export function createEnDict(
+  allowSignup: boolean,
+  docsHref: string,
+): LandingDict {
   return {
   header: {
     github: "GitHub",
@@ -241,7 +244,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       resources: {
         label: "Resources",
         links: [
-          { label: "Documentation", href: "/docs" },
+          { label: "Documentation", href: docsHref },
           { label: "API", href: githubUrl },
           { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
           { label: "Discord", href: discordUrl },
@@ -293,6 +296,41 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       fixes: "Bug Fixes",
     },
     entries: [
+      {
+        version: "0.5.2",
+        date: "2026-09-23",
+        title: "Steering running tasks, duplicate Issue marks, and steadier task runs",
+        changes: [],
+        features: [
+          "Add new instructions to a Claude Code or Codex task while it is still running.",
+          "Mark an Issue as a duplicate from the status picker, jump back to the original, and see that link on lists.",
+          "Set an Issue's custom properties as you create it from the command line.",
+          "Mention an agent in a Telegram group and it already knows the recent conversation.",
+          "Install the command line tool on Windows straight from the download page.",
+        ],
+        improvements: [
+          "Each OpenClaw agent works in the folder you configured for it.",
+          "Attachments you upload while creating an Issue show up in its description.",
+          "A Lark bot that stays silent now points you to where delivery is stuck.",
+          "Scheduled Issue wakeups are shown in your own time zone.",
+          "Getting to a task's GitHub pull request is faster.",
+          "The running indicator is smoother and lighter on your machine.",
+        ],
+        fixes: [
+          "New Codex models show up in the picker as soon as they are out.",
+          "A command line sign-in that cannot reach the server says so, instead of waiting forever.",
+          "An invited member can finish signing up on a self-hosted server that restricts signups.",
+          "A task whose start goes unconfirmed is picked up again instead of stalling.",
+          "Cancelling a task answers right away, and a reply in a thread reaches the agent that owns it.",
+          "The mobile app reconnects on its own after the connection drops.",
+          "Desktop toolbar buttons are spaced correctly again.",
+          "The Windows installer runs on PowerShell 5.1.",
+          "Confirmation dialogs in French no longer scroll sideways.",
+          "An Autopilot keeps a record of the Issues it creates.",
+          "A guest squad leader wakes up and picks the work up.",
+          "You can tell where a WeCom reply was lost on its way back.",
+        ],
+      },
       {
         version: "0.5.1",
         date: "2026-09-21",
@@ -3590,6 +3628,9 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       title: "Prefer the CLI?",
       sub: "For servers, remote dev boxes, and headless setups. Same daemon as Desktop, installed via terminal.",
       installLabel: "Install",
+      platformGroup: "Choose your platform",
+      platformMacosLinux: "macOS / Linux",
+      platformWindows: "Windows",
       startLabel: "Start daemon",
       sshNote: "Already on a server? Same commands work over SSH.",
       copyLabel: "Copy",

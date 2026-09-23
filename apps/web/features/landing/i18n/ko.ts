@@ -2,8 +2,11 @@ import { githubUrl, discordUrl } from "../components/shared";
 import { createEnDict } from "./en";
 import type { LandingDict } from "./types";
 
-export function createKoDict(allowSignup: boolean): LandingDict {
-  const base = createEnDict(allowSignup);
+export function createKoDict(
+  allowSignup: boolean,
+  docsHref: string,
+): LandingDict {
+  const base = createEnDict(allowSignup, docsHref);
 
   return {
     ...base,
@@ -240,7 +243,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         resources: {
           label: "리소스",
           links: [
-            { label: "문서", href: "/docs/ko" },
+            { label: "문서", href: docsHref },
             { label: "API", href: githubUrl },
             { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
             { label: "Discord", href: discordUrl },
@@ -268,6 +271,41 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         fixes: "버그 수정",
       },
       entries: [
+        {
+          version: "0.5.2",
+          date: "2026-09-23",
+          title: "실행 중 작업에 지시 추가, Issue 중복 표시, 더 안정적인 작업 실행",
+          changes: [],
+          features: [
+            "Claude Code나 Codex 작업이 실행 중일 때도 새 지시를 더할 수 있습니다.",
+            "상태 선택에서 Issue를 중복으로 표시하고, 원래 Issue로 바로 이동하며, 목록에서도 그 관계가 보입니다.",
+            "커맨드라인에서 Issue를 만들 때 사용자 지정 속성도 함께 설정할 수 있습니다.",
+            "Telegram 그룹에서 에이전트를 @하면 최근 대화를 이미 알고 답합니다.",
+            "다운로드 페이지에서 Windows용 커맨드라인 설치 방법을 바로 볼 수 있습니다.",
+          ],
+          improvements: [
+            "OpenClaw의 각 에이전트가 자신에게 설정된 폴더에서 작업합니다.",
+            "Issue를 만들 때 올린 첨부 파일이 설명에 나타납니다.",
+            "답이 없는 Lark 봇에서 전달이 어디서 막혔는지 알 수 있습니다.",
+            "Issue의 예약된 재개가 자신의 시간대로 표시됩니다.",
+            "작업의 GitHub 풀 리퀘스트로 더 빨리 이동합니다.",
+            "실행 중 표시가 더 부드러워지고 기기 부담도 줄었습니다.",
+          ],
+          fixes: [
+            "Codex의 새 모델이 나오는 대로 선택 목록에 뜹니다.",
+            "커맨드라인 로그인이 서버에 닿지 않으면 계속 기다리지 않고 알려 줍니다.",
+            "초대받은 멤버는 가입을 제한한 셀프 호스팅에서도 가입을 마칠 수 있습니다.",
+            "시작이 확인되지 않은 작업은 멈춰 있지 않고 다시 시작됩니다.",
+            "작업 취소가 바로 응답하고, 스레드의 답글도 담당 에이전트에게 갑니다.",
+            "모바일 앱이 연결이 끊겨도 스스로 다시 연결합니다.",
+            "데스크톱 툴바 버튼 간격이 원래대로 돌아왔습니다.",
+            "Windows 설치 스크립트가 PowerShell 5.1에서도 실행됩니다.",
+            "프랑스어 확인 창이 옆으로 스크롤되지 않습니다.",
+            "오토파일럿이 만든 Issue가 활동으로 기록됩니다.",
+            "게스트 스쿼드 리더도 정상적으로 깨어나 일을 이어받습니다.",
+            "WeCom 답변이 돌아오지 않았을 때 어디서 사라졌는지 알 수 있습니다.",
+          ],
+        },
         {
           version: "0.5.1",
           date: "2026-09-21",
@@ -3112,6 +3150,9 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         title: "CLI가 더 편하신가요?",
         sub: "서버, 원격 개발 환경, headless 환경에 적합합니다. 데스크톱과 동일한 데몬을 터미널에서 바로 설치할 수 있습니다.",
         installLabel: "설치",
+        platformGroup: "플랫폼 선택",
+        platformMacosLinux: "macOS / Linux",
+        platformWindows: "Windows",
         startLabel: "데몬 시작",
         sshNote: "이미 서버에 접속해 있나요? 같은 명령을 SSH에서도 그대로 사용할 수 있습니다.",
         copyLabel: "복사",

@@ -2,8 +2,11 @@ import { githubUrl, discordUrl } from "../components/shared";
 import { createEnDict } from "./en";
 import type { LandingDict } from "./types";
 
-export function createJaDict(allowSignup: boolean): LandingDict {
-  const base = createEnDict(allowSignup);
+export function createJaDict(
+  allowSignup: boolean,
+  docsHref: string,
+): LandingDict {
+  const base = createEnDict(allowSignup, docsHref);
 
   return {
     ...base,
@@ -241,7 +244,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         resources: {
           label: "リソース",
           links: [
-            { label: "ドキュメント", href: "/docs/ja" },
+            { label: "ドキュメント", href: docsHref },
             { label: "API", href: githubUrl },
             { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
             { label: "Discord", href: discordUrl },
@@ -269,6 +272,41 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         fixes: "バグ修正",
       },
       entries: [
+        {
+          version: "0.5.2",
+          date: "2026-09-23",
+          title: "実行中タスクへの追加指示、Issue の重複マーク、より安定したタスク実行",
+          changes: [],
+          features: [
+            "Claude Code や Codex のタスクに、実行中でも新しい指示を足せます。",
+            "ステータスの選択から Issue を重複としてマークし、元の Issue に戻れて、一覧でもその関係が見えます。",
+            "コマンドラインで Issue を作るときに、カスタムプロパティも一緒に設定できます。",
+            "Telegram のグループでエージェントに @ を付けると、最近のやり取りを踏まえて答えます。",
+            "ダウンロードページから Windows 向けのコマンドラインの入れ方が分かります。",
+          ],
+          improvements: [
+            "OpenClaw のエージェントは、それぞれに設定したフォルダーで作業します。",
+            "Issue を作るときにアップロードした添付が、説明の中に出ます。",
+            "返事のない Lark ボットで、配信がどこで止まっているか分かります。",
+            "Issue の予約された再開が、自分のタイムゾーンで表示されます。",
+            "タスクの GitHub プルリクエストに、より速くたどり着けます。",
+            "実行中の表示がなめらかになり、端末の負荷も軽くなります。",
+          ],
+          fixes: [
+            "Codex の新しいモデルが、出たらすぐ選択肢に並びます。",
+            "コマンドラインのログインでサーバーに届かないとき、待ち続けずに知らせます。",
+            "招待されたメンバーは、登録を制限したセルフホストでも登録を完了できます。",
+            "開始が確認できなかったタスクは、止まったままにならず再び起動されます。",
+            "タスクの取り消しがすぐ返り、スレッドの返信も担当するエージェントに届きます。",
+            "モバイルアプリが、接続が切れても自分でつなぎ直します。",
+            "デスクトップのツールバーの間隔が元に戻ります。",
+            "Windows のインストーラーが PowerShell 5.1 で動きます。",
+            "フランス語の確認ダイアログが横にスクロールしなくなります。",
+            "オートパイロットが作成した Issue が、活動として残ります。",
+            "ゲストのスクワッドリーダーも正しく再開して作業を引き継ぎます。",
+            "WeCom の返信が戻らなかったとき、どこで失われたか分かります。",
+          ],
+        },
         {
           version: "0.5.1",
           date: "2026-09-21",
@@ -3091,6 +3129,9 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         title: "CLI のほうが便利ですか?",
         sub: "サーバー、リモート開発環境、ヘッドレス環境に最適です。デスクトップと同じデーモンを、ターミナルからインストールできます。",
         installLabel: "インストール",
+        platformGroup: "プラットフォームを選択",
+        platformMacosLinux: "macOS / Linux",
+        platformWindows: "Windows",
         startLabel: "デーモンを起動",
         sshNote: "すでにサーバーに接続中ですか? 同じコマンドが SSH 上でもそのまま使えます。",
         copyLabel: "コピー",
