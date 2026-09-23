@@ -4,7 +4,17 @@ import type { ProviderUsageSnapshot } from "@multica/core/types";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { useT } from "../../i18n";
 
-const PLAN_LIMIT_PROVIDERS = new Set(["claude", "cursor", "codex"]);
+const PLAN_LIMIT_PROVIDERS = new Set([
+  "claude",
+  "cursor",
+  "codex",
+  "copilot",
+  "antigravity",
+  "grok",
+  "kimi",
+  "kiro",
+  "opencode",
+]);
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -92,6 +102,16 @@ function headlineWindowId(provider: string): string {
       return "auto";
     case "codex":
       return "primary";
+    case "copilot":
+      return "premium_interactions";
+    case "kimi":
+    case "opencode":
+      return "rolling";
+    case "grok":
+    case "kiro":
+      return "credits";
+    case "antigravity":
+      return "gemini_hourly";
     default:
       return "";
   }

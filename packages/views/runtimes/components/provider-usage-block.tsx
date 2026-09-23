@@ -131,6 +131,18 @@ function providerLabel(
       return t(($) => $.usage.provider_limits.provider_cursor);
     case "codex":
       return t(($) => $.usage.provider_limits.provider_codex);
+    case "copilot":
+      return t(($) => $.usage.provider_limits.provider_copilot);
+    case "antigravity":
+      return t(($) => $.usage.provider_limits.provider_antigravity);
+    case "grok":
+      return t(($) => $.usage.provider_limits.provider_grok);
+    case "kimi":
+      return t(($) => $.usage.provider_limits.provider_kimi);
+    case "kiro":
+      return t(($) => $.usage.provider_limits.provider_kiro);
+    case "opencode":
+      return t(($) => $.usage.provider_limits.provider_opencode);
     default:
       return provider?.trim() || t(($) => $.usage.provider_limits.reason_unknown);
   }
@@ -153,6 +165,30 @@ function windowLabel(
       return t(($) => $.usage.provider_limits.window_primary);
     case "secondary":
       return t(($) => $.usage.provider_limits.window_secondary);
+    case "premium_interactions":
+      return t(($) => $.usage.provider_limits.window_premium_interactions);
+    case "chat":
+      return t(($) => $.usage.provider_limits.window_chat);
+    case "completions":
+      return t(($) => $.usage.provider_limits.window_completions);
+    case "rolling":
+      return t(($) => $.usage.provider_limits.window_rolling);
+    case "weekly":
+      return t(($) => $.usage.provider_limits.window_weekly);
+    case "monthly":
+      return t(($) => $.usage.provider_limits.window_monthly);
+    case "credits":
+      return t(($) => $.usage.provider_limits.window_credits);
+    case "bonus":
+      return t(($) => $.usage.provider_limits.window_bonus);
+    case "gemini_hourly":
+      return t(($) => $.usage.provider_limits.window_gemini_hourly);
+    case "gemini_weekly":
+      return t(($) => $.usage.provider_limits.window_gemini_weekly);
+    case "third_party_hourly":
+      return t(($) => $.usage.provider_limits.window_third_party_hourly);
+    case "third_party_weekly":
+      return t(($) => $.usage.provider_limits.window_third_party_weekly);
     default: {
       if (id?.startsWith("weekly_")) {
         const name = id.slice("weekly_".length).replaceAll("_", " ").trim();

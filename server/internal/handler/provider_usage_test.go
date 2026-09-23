@@ -64,6 +64,21 @@ func TestNormalizeProviderUsageReport(t *testing.T) {
 		t.Fatal("unknown provider accepted")
 	}
 	if _, err := normalizeProviderUsageReport(providerUsageReport{
+		Provider:    "qwen",
+		CollectedAt: collected,
+		Windows:     []providerUsageWindowReport{{ID: "week", PercentUsed: 1}},
+	}); err == nil {
+		t.Fatal("qwen accepted without a local plan collector")
+	}
+	accepted, err := normalizeProviderUsageReport(providerUsageReport{
+		Provider:    "Kimi",
+		CollectedAt: collected,
+		Windows:     []providerUsageWindowReport{{ID: "rolling", PercentUsed: 8}},
+	})
+	if err != nil || accepted.Provider != "kimi" || accepted.Windows[0].ID != "rolling" {
+		t.Fatalf("kimi = %+v err=%v", accepted, err)
+	}
+	if _, err := normalizeProviderUsageReport(providerUsageReport{
 		Provider:    "cursor",
 		CollectedAt: collected,
 		ReasonCode:  "drop table",

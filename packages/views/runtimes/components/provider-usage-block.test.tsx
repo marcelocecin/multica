@@ -145,7 +145,7 @@ describe("ProviderUsageBlock", () => {
     };
 
     render(
-      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="grok" />,
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="qwen" />,
       { wrapper: Wrapper },
     );
 
@@ -156,6 +156,38 @@ describe("ProviderUsageBlock", () => {
     expect(screen.queryByText("Codex")).not.toBeInTheDocument();
     expect(screen.queryByText("Cursor")).not.toBeInTheDocument();
     expect(screen.queryByText("mystery")).not.toBeInTheDocument();
+  });
+
+  it("shows only Grok credits on the Grok runtime", () => {
+    queryResult.current = {
+      isLoading: false,
+      data: {
+        providers: [
+          {
+            provider: "claude",
+            plan_name: "Max",
+            windows: [{ id: "session", percent_used: 38 }],
+          },
+          {
+            provider: "grok",
+            plan_name: "Grok Build",
+            windows: [{ id: "credits", percent_used: 8 }],
+          },
+        ],
+      },
+    };
+
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="grok" />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByText("Grok")).toBeInTheDocument();
+    expect(screen.getByText("Credits")).toBeInTheDocument();
+    expect(screen.getByText("8% used")).toBeInTheDocument();
+    expect(screen.getByText("Plan: Grok Build")).toBeInTheDocument();
+    expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
+    expect(screen.queryByText("38% used")).not.toBeInTheDocument();
   });
 
   it("shows only Claude windows when the machine also reported Codex and Cursor", () => {

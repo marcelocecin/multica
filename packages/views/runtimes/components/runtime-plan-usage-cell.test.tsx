@@ -97,10 +97,35 @@ describe("RuntimePlanUsageCell", () => {
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
   });
 
-  it("renders an empty cell for a provider with no plan limits", () => {
+  it("shows the Grok credits headline and ignores other vendors", () => {
     render(
       <RuntimePlanUsageCell
         provider="grok"
+        now={NOW}
+        providers={[
+          {
+            provider: "claude",
+            windows: [{ id: "session", percent_used: 38 }],
+          },
+          {
+            provider: "grok",
+            plan_name: "Grok Build",
+            windows: [{ id: "credits", percent_used: 8 }],
+          },
+        ]}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByText("8%")).toBeInTheDocument();
+    expect(screen.getByText("Grok Build")).toBeInTheDocument();
+    expect(screen.queryByText("38%")).not.toBeInTheDocument();
+  });
+
+  it("renders an empty cell for a provider with no plan limits", () => {
+    render(
+      <RuntimePlanUsageCell
+        provider="qwen"
         providers={[
           {
             provider: "claude",

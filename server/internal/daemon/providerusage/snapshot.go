@@ -6,9 +6,15 @@ package providerusage
 import "time"
 
 const (
-	ProviderClaude = "claude"
-	ProviderCursor = "cursor"
-	ProviderCodex  = "codex"
+	ProviderClaude      = "claude"
+	ProviderCursor      = "cursor"
+	ProviderCodex       = "codex"
+	ProviderCopilot     = "copilot"
+	ProviderAntigravity = "antigravity"
+	ProviderGrok        = "grok"
+	ProviderKimi        = "kimi"
+	ProviderKiro        = "kiro"
+	ProviderOpenCode    = "opencode"
 
 	ReasonNotLoggedIn        = "not_logged_in"
 	ReasonAPIKeyOnly         = "api_key_only"

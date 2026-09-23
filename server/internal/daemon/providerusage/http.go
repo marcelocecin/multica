@@ -20,6 +20,26 @@ func readVendorBody(resp *http.Response) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, maxVendorBodySize))
 }
 
+// performVendor runs one vendor request. A nil doer uses the production
+// client. The body is capped; callers still have to drop credential fields
+// before building a Snapshot.
+func performVendor(do HTTPDoer, req *http.Request) (body []byte, status int, retryAfter string, err error) {
+	if do == nil {
+		client := &http.Client{Timeout: vendorTimeout}
+		do = client.Do
+	}
+	resp, err := do(req)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	retryAfter = resp.Header.Get("Retry-After")
+	body, err = readVendorBody(resp)
+	if err != nil {
+		return nil, resp.StatusCode, retryAfter, err
+	}
+	return body, resp.StatusCode, retryAfter, nil
+}
+
 // classifyVendorStatus maps a vendor HTTP status onto an upload decision.
 // 401 and 403 are an empty snapshot. 429 backs off and keeps the last good
 // snapshot. Other non-200 statuses are transient.

@@ -19,9 +19,15 @@ import (
 const providerUsageMaxBody = 64 * 1024
 
 var providerUsageProviders = map[string]struct{}{
-	"claude": {},
-	"cursor": {},
-	"codex":  {},
+	"claude":      {},
+	"cursor":      {},
+	"codex":       {},
+	"copilot":     {},
+	"antigravity": {},
+	"grok":        {},
+	"kimi":        {},
+	"kiro":        {},
+	"opencode":    {},
 }
 
 var providerUsageReasons = map[string]struct{}{

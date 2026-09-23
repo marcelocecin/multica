@@ -35,6 +35,10 @@ func (d *Daemon) collectProviderUsage(ctx context.Context, backoffUntil map[stri
 		return
 	}
 	now := time.Now()
+	// Qianwen, Gemini CLI, Amp, Devin, GLM, MiniMax, Ollama, LM Studio,
+	// DeepSeek, Perplexity, and Command Code are not collected. They are
+	// either not a Multica runtime, or the only CodeNotch path is a browser
+	// cookie or a local token ledger rather than a signed-in plan window.
 	collectors := []struct {
 		provider string
 		collect  func(context.Context) providerusage.Result
@@ -42,6 +46,12 @@ func (d *Daemon) collectProviderUsage(ctx context.Context, backoffUntil map[stri
 		{providerusage.ProviderClaude, providerusage.ClaudeCollector{}.Collect},
 		{providerusage.ProviderCursor, providerusage.CursorCollector{}.Collect},
 		{providerusage.ProviderCodex, providerusage.CodexCollector{}.Collect},
+		{providerusage.ProviderCopilot, providerusage.CopilotCollector{}.Collect},
+		{providerusage.ProviderAntigravity, providerusage.AntigravityCollector{}.Collect},
+		{providerusage.ProviderGrok, providerusage.GrokCollector{}.Collect},
+		{providerusage.ProviderKimi, providerusage.KimiCollector{}.Collect},
+		{providerusage.ProviderKiro, providerusage.KiroCollector{}.Collect},
+		{providerusage.ProviderOpenCode, providerusage.OpenCodeCollector{}.Collect},
 	}
 	for _, item := range collectors {
 		if until, ok := backoffUntil[item.provider]; ok && now.Before(until) {
