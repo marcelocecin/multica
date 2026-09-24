@@ -510,7 +510,10 @@
     "duplicate_unmarked_to": "取消了这个任务对 {{identifier}} 的重复标记，并移至{{status}}",
     "duplicate_unmarked_original_deleted": "移除了重复标记，{{identifier}} 已被删除",
     "duplicate_added": "把 {{identifier}} 标记为这个任务的重复",
-    "duplicate_removed": "取消了 {{identifier}} 对这个任务的重复标记"
+    "duplicate_removed": "取消了 {{identifier}} 对这个任务的重复标记",
+    "status_changed_pr": "所有关联 PR 均已合并（{{prs}}），状态从 {{from}} 改为 {{to}}",
+    "pr_auto_complete_disabled": "关闭了此任务的 PR 自动完成",
+    "pr_auto_complete_enabled": "恢复了此任务的 PR 自动完成"
   },
   "comment": {
     "add_reaction": "添加表情回应",
@@ -1076,5 +1079,37 @@
     "unmark": "不是重复",
     "section_title": "重复项",
     "unmark_toast": "已重新打开为待办"
+  },
+  "pr_automation": {
+    "link_action": "关联 PR",
+    "link_placeholder": "粘贴 PR 链接",
+    "link_hint": "标题或分支名含 {{identifier}} 的 PR 会自动关联。",
+    "link_submit": "关联",
+    "link_not_found": "Multica 还没有收到这个 PR。请确认它所在的仓库已连接。",
+    "link_failed": "关联 PR 失败。",
+    "row_menu": "PR 操作",
+    "section_menu": "PR 自动化",
+    "source_title": "通过标题中的 {{identifier}} 关联",
+    "source_branch": "通过分支名关联",
+    "source_manual": "手动关联",
+    "source_auto": "自动关联",
+    "unlink": "移除关联",
+    "unlinked": "已移除 {{pr}}",
+    "unlinked_completed": "已移除 {{pr}}。其余 PR 均已合并，任务已完成。",
+    "unlink_failed": "移除关联失败。",
+    "undo": "撤销",
+    "disable": "此任务不自动完成",
+    "enable": "恢复自动完成",
+    "settings": "自动完成设置",
+    "update_failed": "更新自动完成失败。",
+    "waiting_other": "等待 {{prs}} 合并后自动完成",
+    "not_merged": "{{prs}} 已关闭，未合并",
+    "not_merged_action": "移除",
+    "no_close_intent": "不会自动完成：缺少 \"Closes {{identifier}}\"",
+    "all_merged": "PR 均已合并。之后有新 PR 合并时会自动完成。",
+    "issue_disabled": "此任务不自动完成",
+    "issue_disabled_action": "恢复",
+    "workspace_disabled": "工作区未开启 PR 自动完成",
+    "workspace_disabled_action": "设置"
   }
 }

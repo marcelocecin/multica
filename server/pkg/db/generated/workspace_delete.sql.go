@@ -380,6 +380,12 @@ deleted_issue_vcs_links AS (
     WHERE issue_id IN (SELECT id FROM ws_issues)
        OR pull_request_id IN (SELECT id FROM ws_vcs_prs)
 ),
+deleted_issue_pr_automation AS (
+    DELETE FROM issue_pr_automation WHERE workspace_id = $1
+),
+deleted_issue_pr_exclusions AS (
+    DELETE FROM issue_pull_request_exclusion WHERE workspace_id = $1
+),
 deleted_agent_invocation_targets AS (
     DELETE FROM agent_invocation_target
     WHERE agent_id IN (SELECT id FROM ws_agents)

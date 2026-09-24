@@ -164,11 +164,12 @@ vi.mock("../../editor", async () => ({
     tryOpen: () => false,
     modal: null,
   }),
-  // Pass-through: the detail page wraps its column in the image-sequence
-  // provider, but paging between images is covered in
-  // image-sequence-context.test.tsx against the real provider.
-  ImageSequenceProvider: ({ children }: { children: React.ReactNode }) =>
+  // Pass-through: the detail page wraps its column in the preview-sequence
+  // provider, but paging between files is covered in
+  // preview-sequence-context.test.tsx against the real provider.
+  PreviewSequenceProvider: ({ children }: { children: React.ReactNode }) =>
     children,
+  collectPreviewSequence: () => [],
   isPreviewable: () => false,
   ReadonlyContent: ({ content }: { content: string }) => {
     readonlyContentRenders.push(content);
@@ -1845,6 +1846,38 @@ describe("IssueDetail (shared)", () => {
     // Reopening replaces the status row, so the unmarked row says where it went.
     expect(screen.getByText(/and moved it to Todo/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "MUL-9" })).toHaveLength(2);
+  });
+
+  // MUL-7429: an automatic status change says why, and the per-issue switch
+  // shows on the timeline.
+  it("explains PR auto-complete activity", async () => {
+    mockApiObj.listTimeline.mockResolvedValue([
+      {
+        type: "activity",
+        id: "act-pr-done",
+        actor_type: "system",
+        actor_id: null,
+        action: "status_changed",
+        details: { from: "in_progress", to: "done", source: "pr_automation", pull_requests: "#12, #19" },
+        created_at: "2026-01-18T00:00:00Z",
+      },
+      {
+        type: "activity",
+        id: "act-pr-off",
+        actor_type: "member",
+        actor_id: "user-1",
+        action: "pr_auto_complete_changed",
+        details: { disabled: true },
+        created_at: "2026-01-18T01:00:00Z",
+      },
+    ] as unknown as TimelineEntry[]);
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(/after every linked PR merged \(#12, #19\)/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/turned off PR auto-complete for this issue/i)).toBeInTheDocument();
   });
 
   it("renders activity rows with unknown status values without crashing", async () => {

@@ -524,23 +524,16 @@ type AgentTaskResponse struct {
 	// is empty.
 	RequestingUserName               string `json:"requesting_user_name,omitempty"`
 	RequestingUserProfileDescription string `json:"requesting_user_profile_description,omitempty"`
-	// Initiator* identify the actor who triggered THIS task — the real
-	// requester behind the current comment/mention or chat message — as
-	// distinct from the runtime owner whose credentials the agent runs with.
-	// Resolved at claim time: comment-triggered tasks use the triggering
-	// comment's author; chat tasks use the chat session creator. Empty for
-	// task kinds with no attributable human initiator (on-assign, autopilot,
-	// quick-create). InitiatorEmail is set only for member initiators
-	// ("member"); agent initiators ("agent") carry a name but no email. The
-	// daemon emits these into the brief under `## Task Initiator` so a
-	// workspace-visible, multi-user agent can attribute the request and apply
-	// per-person privacy / access rules instead of seeing every requester as
-	// the owner. The agent's effective Multica credentials stay owner-scoped —
-	// this is an attested identity, not a credential. See MUL-2645.
-	InitiatorType  string `json:"initiator_type,omitempty"`  // "member" or "agent"
-	InitiatorID    string `json:"initiator_id,omitempty"`    // user UUID (member) or agent UUID
-	InitiatorName  string `json:"initiator_name,omitempty"`  // display name of the initiator
-	InitiatorEmail string `json:"initiator_email,omitempty"` // member email; empty for agent initiators
+	// Initiator* are the existing daemon wire fields for the human whose
+	// authority this run uses (originator_user_id). Despite their historical
+	// names, they are not necessarily the direct trigger author; that actor is
+	// represented by trigger_author_* for comment runs. Empty when no
+	// originator exists. The daemon renders this per-turn as ## On Behalf Of;
+	// credentials remain scoped to the runtime owner. See MUL-2645, GH-8674.
+	InitiatorType  string `json:"initiator_type,omitempty"`  // "member" when an originator exists
+	InitiatorID    string `json:"initiator_id,omitempty"`    // originator user UUID
+	InitiatorName  string `json:"initiator_name,omitempty"`  // originator display name
+	InitiatorEmail string `json:"initiator_email,omitempty"` // originator email
 	Kind           string `json:"kind"`                      // source discriminator: "comment" | "autopilot" | "chat" | "quick_create" | "direct" — quick-create remains stable after its result issue is linked
 	// Attribution is the resolved accountable-human provenance for this run
 	// (MUL-4302 §9): the source label + precise flag, the initiator (accountable)

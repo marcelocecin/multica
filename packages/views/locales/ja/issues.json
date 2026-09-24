@@ -510,7 +510,10 @@
     "duplicate_unmarked_to": "このタスクの {{identifier}} との重複マークを解除し、{{status}} に移動しました",
     "duplicate_unmarked_original_deleted": "重複マークを解除しました（{{identifier}} は削除されました）",
     "duplicate_added": "{{identifier}} をこのタスクの重複としてマークしました",
-    "duplicate_removed": "{{identifier}} の重複マークを解除しました"
+    "duplicate_removed": "{{identifier}} の重複マークを解除しました",
+    "status_changed_pr": "関連するすべての PR がマージされたため（{{prs}}）、ステータスを {{from}} から {{to}} に変更しました",
+    "pr_auto_complete_disabled": "このタスクの PR による自動完了をオフにしました",
+    "pr_auto_complete_enabled": "このタスクの PR による自動完了を再開しました"
   },
   "comment": {
     "add_reaction": "リアクションを追加",
@@ -1076,5 +1079,37 @@
     "unmark": "重複ではない",
     "section_title": "重複",
     "unmark_toast": "未着手として再開しました"
+  },
+  "pr_automation": {
+    "link_action": "PR を関連付け",
+    "link_placeholder": "PR の URL を貼り付け",
+    "link_hint": "タイトルかブランチ名に {{identifier}} を含む PR は自動で関連付けられます。",
+    "link_submit": "関連付け",
+    "link_not_found": "Multica はまだこの PR を受け取っていません。リポジトリが接続されているか確認してください。",
+    "link_failed": "PR を関連付けられませんでした。",
+    "row_menu": "PR の操作",
+    "section_menu": "PR の自動化",
+    "source_title": "タイトルの {{identifier}} で関連付け",
+    "source_branch": "ブランチ名で関連付け",
+    "source_manual": "手動で関連付け",
+    "source_auto": "自動で関連付け",
+    "unlink": "タスクから外す",
+    "unlinked": "{{pr}} を外しました",
+    "unlinked_completed": "{{pr}} を外しました。残りの PR はすべてマージ済みのため、タスクは完了しました。",
+    "unlink_failed": "PR を外せませんでした。",
+    "undo": "元に戻す",
+    "disable": "このタスクは自動完了しない",
+    "enable": "自動完了を再開",
+    "settings": "自動完了の設定",
+    "update_failed": "自動完了を更新できませんでした。",
+    "waiting_other": "{{prs}} がマージされると自動完了",
+    "not_merged": "{{prs}} はマージされずにクローズされました",
+    "not_merged_action": "外す",
+    "no_close_intent": "自動完了しません：「Closes {{identifier}}」なし",
+    "all_merged": "PR はすべてマージ済みです。次に PR がマージされると自動完了します。",
+    "issue_disabled": "このタスクは自動完了しません",
+    "issue_disabled_action": "再開",
+    "workspace_disabled": "このワークスペースでは PR による自動完了がオフです",
+    "workspace_disabled_action": "設定"
   }
 }
