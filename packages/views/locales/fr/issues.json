@@ -519,7 +519,10 @@
     "duplicate_unmarked_to": "a retiré la marque de doublon de {{identifier}} sur cette tâche et l'a passée en {{status}}",
     "duplicate_unmarked_original_deleted": "a retiré la marque de doublon, {{identifier}} a été supprimée",
     "duplicate_added": "a marqué {{identifier}} comme doublon de cette tâche",
-    "duplicate_removed": "a retiré la marque de doublon de {{identifier}}"
+    "duplicate_removed": "a retiré la marque de doublon de {{identifier}}",
+    "status_changed_pr": "a changé le statut de {{from}} à {{to}} après la fusion de toutes les PR liées ({{prs}})",
+    "pr_auto_complete_disabled": "a désactivé la fin automatique par PR pour cette tâche",
+    "pr_auto_complete_enabled": "a réactivé la fin automatique par PR pour cette tâche"
   },
   "comment": {
     "add_reaction": "Ajouter une réaction",
@@ -1107,5 +1110,38 @@
     "unmark": "Pas un doublon",
     "section_title": "Doublons",
     "unmark_toast": "Rouverte en À faire"
+  },
+  "pr_automation": {
+    "link_action": "Lier une pull request",
+    "link_placeholder": "Collez l’URL de la pull request",
+    "link_hint": "Les PR dont le titre ou la branche contient {{identifier}} sont liées automatiquement.",
+    "link_submit": "Lier",
+    "link_not_found": "Multica n’a pas encore reçu cette PR. Vérifiez que son dépôt est connecté.",
+    "link_failed": "Impossible de lier la pull request.",
+    "row_menu": "Actions de la pull request",
+    "section_menu": "Automatisation des pull requests",
+    "source_title": "Liée par {{identifier}} dans le titre",
+    "source_branch": "Liée par le nom de branche",
+    "source_manual": "Liée manuellement",
+    "source_auto": "Liée automatiquement",
+    "unlink": "Retirer de la tâche",
+    "unlinked": "{{pr}} retirée",
+    "unlinked_completed": "{{pr}} retirée. Les autres PR sont fusionnées, la tâche est terminée.",
+    "unlink_failed": "Impossible de retirer la pull request.",
+    "undo": "Annuler",
+    "disable": "Désactiver la fin automatique",
+    "enable": "Réactiver la fin automatique",
+    "settings": "Réglages de fin automatique",
+    "update_failed": "Impossible de modifier la fin automatique.",
+    "waiting_one": "Se termine quand {{prs}} est fusionnée",
+    "waiting_other": "Se termine quand {{prs}} sont fusionnées",
+    "not_merged": "{{prs}} fermée sans fusion",
+    "not_merged_action": "Retirer",
+    "no_close_intent": "Ne se termine pas : pas de « Closes {{identifier}} »",
+    "all_merged": "Toutes les PR sont fusionnées. La prochaine PR fusionnée terminera la tâche.",
+    "issue_disabled": "Fin automatique désactivée pour cette tâche",
+    "issue_disabled_action": "Réactiver",
+    "workspace_disabled": "La fin automatique par PR est désactivée pour cet espace",
+    "workspace_disabled_action": "Réglages"
   }
 }

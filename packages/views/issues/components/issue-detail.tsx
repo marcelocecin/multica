@@ -39,8 +39,8 @@ import { Button } from "@multica/ui/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@multica/ui/components/ui/resizable";
 import { Sheet, SheetContent } from "@multica/ui/components/ui/sheet";
 import { useIsMobile } from "@multica/ui/hooks/use-mobile";
-import { ContentEditor, type ContentEditorRef, TitleEditor, type TitleEditorRef, useFileDropZone, FileDropOverlay, useLazyEditor, useEditorUpload, ImageSequenceProvider } from "../../editor";
-import { collectImageSequence, type ImageSequenceBlock } from "@multica/core/attachments/image-sequence";
+import { ContentEditor, type ContentEditorRef, TitleEditor, type TitleEditorRef, useFileDropZone, FileDropOverlay, useLazyEditor, useEditorUpload, PreviewSequenceProvider, collectPreviewSequence } from "../../editor";
+import type { ImageSequenceBlock } from "@multica/core/attachments/image-sequence";
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import {
   Tooltip,
@@ -103,7 +103,7 @@ import { ExecutionLogSection } from "./execution-log-section";
 import { WakeupsSection } from "./wakeups-section";
 import { QuickActionsSection } from "./quick-actions-section";
 import { PluginPanelSection } from "../../plugins";
-import { PullRequestList } from "./pull-request-list";
+import { PullRequestsSection } from "./pull-requests-section";
 import { useGitHubSettings } from "@multica/core/github";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -308,10 +308,22 @@ function formatActivity(
     case "created":
       return t(($) => $.activity.created);
     case "status_changed":
+      // PR auto-complete (MUL-7429) says why the status moved.
+      if (details.source === "pr_automation") {
+        return t(($) => $.activity.status_changed_pr, {
+          from: statusLabel(details.from ?? "?", t, resolveStatusLabel),
+          to: statusLabel(details.to ?? "?", t, resolveStatusLabel),
+          prs: details.pull_requests ?? "",
+        });
+      }
       return t(($) => $.activity.status_changed, {
         from: statusLabel(details.from ?? "?", t, resolveStatusLabel),
         to: statusLabel(details.to ?? "?", t, resolveStatusLabel),
       });
+    case "pr_auto_complete_changed":
+      return (entry.details as { disabled?: unknown } | undefined)?.disabled === true
+        ? t(($) => $.activity.pr_auto_complete_disabled)
+        : t(($) => $.activity.pr_auto_complete_enabled);
     case "priority_changed":
       return t(($) => $.activity.priority_changed, {
         from: priorityLabel(details.from ?? "?", t),
@@ -2146,19 +2158,28 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     [issueAttachments, descPendingAttachments],
   );
 
-  // Every image in this issue, in the order the page renders them: the
-  // description first, then each timeline comment with its thread replies
+  // Every previewable file in this issue, in the order the page renders them:
+  // the description first, then each timeline comment with its thread replies
   // nested under it (MUL-5752). Built from `items` rather than the flat
   // timeline so a reply sits next to the root it renders under, and from data
   // rather than the DOM because Virtuoso only mounts the visible window.
   //
   // A resolved thread that is currently collapsed still contributes its
-  // images: they belong to the issue and are one click from being on screen,
+  // files: they belong to the issue and are one click from being on screen,
   // so leaving them out would make the counter change depending on which
   // threads happen to be folded.
-  const imageSequence = useMemo(() => {
+  //
+  // The description renders no standalone cards, and its attachment list is
+  // the whole issue's (comment uploads keep `issue_id`) — it only resolves the
+  // description's own references, or every comment file would be counted at
+  // the description's position.
+  const previewSequence = useMemo(() => {
     const blocks: ImageSequenceBlock[] = [
-      { content: issue?.description, attachments: descEditorAttachments },
+      {
+        content: issue?.description,
+        attachments: descEditorAttachments,
+        standalone: false,
+      },
     ];
     for (const item of items) {
       if (item.kind === "activity-group" || !item.entry) continue;
@@ -2170,7 +2191,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         blocks.push({ content: reply.content, attachments: reply.attachments });
       }
     }
-    return collectImageSequence(blocks);
+    return collectPreviewSequence(blocks);
   }, [issue?.description, descEditorAttachments, items, timelineView.threadReplies]);
 
   const handleDescriptionUpload = useCallback(
@@ -2664,17 +2685,12 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           (or the GitHub master switch is off). Backend data is kept either
           way so re-enabling restores the section instantly. */}
       {githubSettings.prSidebar && (
-        <div>
-          <button
-            type="button"
-            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${pullRequestsOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
-            onClick={() => setPullRequestsOpen(!pullRequestsOpen)}
-          >
-            {t(($) => $.detail.section_pull_requests)}
-            <ChevronRight className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${pullRequestsOpen ? "rotate-90" : ""}`} />
-          </button>
-          {pullRequestsOpen && <div className="pl-2"><PullRequestList issueId={id} /></div>}
-        </div>
+        <PullRequestsSection
+          issueId={id}
+          identifier={issue.identifier}
+          open={pullRequestsOpen}
+          onOpenChange={setPullRequestsOpen}
+        />
       )}
 
       {/* Execution log — active runs + collapsed past runs, each carrying its
@@ -2866,11 +2882,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       : [];
 
   const detailContent = (
-    // Hosts the one image viewer this issue's images page through — see
-    // ImageSequenceProvider. Wraps the whole column so the description
-    // editor's images and the timeline's images share one sequence.
+    // Hosts the one viewer this issue's files page through — see
+    // PreviewSequenceProvider. Wraps the whole column so the description
+    // editor's files and the timeline's files share one sequence.
     <CurrentIssueRenderContextProvider value={currentIssueRenderContext}>
-    <ImageSequenceProvider items={imageSequence}>
+    <PreviewSequenceProvider items={previewSequence}>
     <div className="relative flex h-full min-w-0 flex-1 flex-col">
         {/* In-page find bar — floats over the top-right of the content column
             (below the breadcrumb header), outside the scroll container so it
@@ -3619,7 +3635,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           />
         )}
       </div>
-    </ImageSequenceProvider>
+    </PreviewSequenceProvider>
     </CurrentIssueRenderContextProvider>
   );
 

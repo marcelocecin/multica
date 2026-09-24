@@ -254,6 +254,11 @@ type RouterOptions struct {
 	// any test that happened to have the variable set. nil means unset, which
 	// is what tests and NewRouter get.
 	LLMMaxRetries *llm.RetryOverride
+	// LLMDisableThinking carries the parsed MULTICA_LLM_DISABLE_THINKING
+	// switch. It follows its LLMMaxRetries sibling in being injected rather
+	// than read here, for the same fail-the-boot-in-main-only reason: the raw
+	// value is validated by parseLLMDisableThinking before the router exists.
+	LLMDisableThinking bool
 }
 
 func buildChannelSupervisor(
@@ -436,6 +441,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		LLMBaseURL:               strings.TrimSpace(os.Getenv("MULTICA_LLM_BASE_URL")),
 		LLMDefaultModel:          strings.TrimSpace(os.Getenv("MULTICA_LLM_DEFAULT_MODEL")),
 		LLMMaxRetries:            opts.LLMMaxRetries,
+		LLMDisableThinking:       opts.LLMDisableThinking,
 		ServerVersion:            normalizeServerVersion(version),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
@@ -1183,8 +1189,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				Logger: slog.Default(),
 			})
 			telegramTyping := telegram.NewTypingNotifier(box.Open, "", nil, slog.Default())
-			channelRouter.Register(telegram.TypeTelegram, telegram.NewTelegramResolverSet(queries, pool, telegramReplier, telegramTyping))
+			// Media both ways needs object storage: inbound photos/files become
+			// chat attachments only when there is somewhere to put the bytes,
+			// and the agent is promised outbound file delivery only where the
+			// same storage exists to read them back from. One `if` decides both
+			// halves so the capability and the promise cannot drift (same rule
+			// as WeCom above).
+			var telegramMedia engine.MediaResolver
 			telegramOutbound := telegram.NewOutbound(queries, box.Open, "", nil, slog.Default())
+			if store != nil {
+				telegramMedia = telegram.NewMediaResolver(box.Open, store, engine.NewDBMediaIntentLedger(queries), "", nil, slog.Default())
+				telegramOutbound.EnableFileDelivery(store)
+				h.DeclareChannelFileDelivery(string(telegram.TypeTelegram))
+			}
+			channelRouter.Register(telegram.TypeTelegram, telegram.NewTelegramResolverSet(queries, pool, telegramReplier, telegramTyping, telegramMedia))
 			telegramOutbound.Register(bus)
 			h.TelegramOutbound = telegramOutbound
 
@@ -1194,6 +1212,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				Decrypt:           box.Open,
 				Logger:            slog.Default(),
 				RecentContextSize: telegram.DefaultRecentContextSize,
+				AcceptsMedia:      store != nil,
 			})
 
 			installSvc, ierr := telegram.NewInstallService(queries, pool, box, slog.Default())
@@ -2021,6 +2040,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/properties/{propertyId}", h.SetIssueProperty)
 					r.Delete("/properties/{propertyId}", h.DeleteIssueProperty)
 					r.Get("/pull-requests", h.ListPullRequestsForIssue)
+					r.Post("/pull-requests", h.LinkIssuePullRequest)
+					r.Delete("/pull-requests/{prId}", h.UnlinkIssuePullRequest)
+					r.Put("/pr-auto-complete", h.SetIssuePRAutoComplete)
 				})
 			})
 

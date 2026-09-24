@@ -179,6 +179,7 @@ func TestTaskSupplementNegotiationFailsClosed(t *testing.T) {
 	}{
 		{name: "codex negotiated", provider: "codex", daemonAdvertises: true, wantCapabilityRow: true},
 		{name: "claude negotiated", provider: "claude", daemonAdvertises: true, wantCapabilityRow: true},
+		{name: "grok negotiated", provider: "grok", daemonAdvertises: true, wantCapabilityRow: true},
 		{name: "claude old daemon", provider: "claude", daemonAdvertises: false, wantCapabilityRow: false},
 		{name: "old daemon", provider: "codex", daemonAdvertises: false, wantCapabilityRow: false},
 		{name: "unsupported runtime", provider: "kimi", daemonAdvertises: true, wantCapabilityRow: false},
@@ -211,7 +212,7 @@ func TestTaskSupplementCapabilityDoesNotBreakNonIssueStarts(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
-	for _, provider := range []string{"codex", "claude"} {
+	for _, provider := range []string{"codex", "claude", "grok"} {
 		t.Run(provider, func(t *testing.T) {
 			runtimeID := dbfx.Runtime(t, "supplement-no-issue", testutil.Cols{"provider": provider})
 			agentID := dbfx.Agent(t, "Supplement no issue", runtimeID)
@@ -228,7 +229,7 @@ func TestTaskSupplementCapabilityDoesNotBreakNonIssueStarts(t *testing.T) {
 }
 
 func TestTaskSupplementCompletionDoesNotReplayBoundComments(t *testing.T) {
-	for _, provider := range []string{"codex", "claude"} {
+	for _, provider := range []string{"codex", "claude", "grok"} {
 		for _, status := range []string{"pending", "delivering", "delivered", "failed"} {
 			for _, ordinary := range []string{"none", "unhandled", "queued"} {
 				t.Run(provider+"/"+status+"/"+ordinary, func(t *testing.T) {

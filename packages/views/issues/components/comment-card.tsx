@@ -786,6 +786,27 @@ function CommentRow({
               }
             />
             <DropdownMenuContent align="end">
+              {/* Groups: act on it (edit, resolve), take it elsewhere, then delete alone. */}
+              {canEditEntry && (
+                <DropdownMenuItem onClick={edit.startEdit}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  {t(($) => $.comment.edit_action)}
+                </DropdownMenuItem>
+              )}
+              {onResolveToggle && (
+                isResolution ? (
+                  <DropdownMenuItem onClick={() => onResolveToggle(entry.id, false)}>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {t(($) => $.comment.resolve.unresolve_action)}
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={() => onResolveToggle(entry.id, true)}>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {t(($) => $.comment.resolve.resolve_with_comment_action)}
+                  </DropdownMenuItem>
+                )
+              )}
+              {(canEditEntry || onResolveToggle) && <DropdownMenuSeparator />}
               <DropdownMenuItem onClick={() => {
                 void copyText(entry.content ?? "").then((ok) => {
                   if (ok) toast.success(t(($) => $.comment.copied_toast));
@@ -806,38 +827,13 @@ function CommentRow({
                   {t(($) => $.source_context.create_action)}
                 </DropdownMenuItem>
               )}
-              {onResolveToggle && (
+              {canDeleteEntry && (
                 <>
                   <DropdownMenuSeparator />
-                  {isResolution ? (
-                    <DropdownMenuItem onClick={() => onResolveToggle(entry.id, false)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.resolve.unresolve_action)}
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem onClick={() => onResolveToggle(entry.id, true)}>
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.resolve.resolve_with_comment_action)}
-                    </DropdownMenuItem>
-                  )}
-                </>
-              )}
-              {(canEditEntry || canDeleteEntry) && (
-                <>
-                  <DropdownMenuSeparator />
-                  {canEditEntry && (
-                    <DropdownMenuItem onClick={edit.startEdit}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.edit_action)}
-                    </DropdownMenuItem>
-                  )}
-                  {canEditEntry && canDeleteEntry && <DropdownMenuSeparator />}
-                  {canDeleteEntry && (
-                    <DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {t(($) => $.comment.delete_action)}
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {t(($) => $.comment.delete_action)}
+                  </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
@@ -1297,6 +1293,29 @@ function CommentCardImpl({
                       }
                     />
                     <DropdownMenuContent align="end">
+                      {/* Groups: act on it (edit, resolve), take it elsewhere, then delete alone. */}
+                      {canEditEntry && (
+                        <DropdownMenuItem onClick={edit.startEdit}>
+                          <Pencil className="h-3.5 w-3.5" />
+                          {t(($) => $.comment.edit_action)}
+                        </DropdownMenuItem>
+                      )}
+                      {onResolveToggle && (
+                        <DropdownMenuItem onClick={() => onResolveToggle(entry.id, !entry.resolved_at)}>
+                          {entry.resolved_at ? (
+                            <>
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              {t(($) => $.comment.resolve.unresolve_thread_action)}
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {t(($) => $.comment.resolve.resolve_thread_action)}
+                            </>
+                          )}
+                        </DropdownMenuItem>
+                      )}
+                      {(canEditEntry || onResolveToggle) && <DropdownMenuSeparator />}
                       <DropdownMenuItem onClick={() => {
                         void copyText(entry.content ?? "").then((ok) => {
                           if (ok) toast.success(t(($) => $.comment.copied_toast));
@@ -1317,40 +1336,13 @@ function CommentCardImpl({
                           {t(($) => $.source_context.create_action)}
                         </DropdownMenuItem>
                       )}
-                      {onResolveToggle && (
+                      {canDeleteEntry && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => onResolveToggle(entry.id, !entry.resolved_at)}>
-                            {entry.resolved_at ? (
-                              <>
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                {t(($) => $.comment.resolve.unresolve_thread_action)}
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                {t(($) => $.comment.resolve.resolve_thread_action)}
-                              </>
-                            )}
+                          <DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {t(($) => $.comment.delete_action)}
                           </DropdownMenuItem>
-                        </>
-                      )}
-                      {(canEditEntry || canDeleteEntry) && (
-                        <>
-                          <DropdownMenuSeparator />
-                          {canEditEntry && (
-                            <DropdownMenuItem onClick={edit.startEdit}>
-                              <Pencil className="h-3.5 w-3.5" />
-                              {t(($) => $.comment.edit_action)}
-                            </DropdownMenuItem>
-                          )}
-                          {canEditEntry && canDeleteEntry && <DropdownMenuSeparator />}
-                          {canDeleteEntry && (
-                            <DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
-                              <Trash2 className="h-3.5 w-3.5" />
-                              {t(($) => $.comment.delete_action)}
-                            </DropdownMenuItem>
-                          )}
                         </>
                       )}
                     </DropdownMenuContent>

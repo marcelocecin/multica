@@ -2600,23 +2600,6 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		}
 	}
 
-	// Stored task initiator: chat tasks persist the real message sender at
-	// enqueue time (web: request user; Lark: inbound sender — NOT the chat
-	// session creator, which for Lark groups is the installer). When set, it is
-	// the authoritative initiator for this run; resolve the live name/email so
-	// the daemon can render `## Task Initiator`. Comment-triggered tasks instead
-	// resolve their initiator from the triggering comment's author below; the
-	// two paths are mutually exclusive (a task is either chat or issue-bound).
-	// See MUL-2645.
-	if task.InitiatorUserID.Valid {
-		resp.InitiatorType = "member"
-		resp.InitiatorID = uuidToString(task.InitiatorUserID)
-		if u, err := h.Queries.GetUser(r.Context(), task.InitiatorUserID); err == nil {
-			resp.InitiatorName = u.Name
-			resp.InitiatorEmail = u.Email
-		}
-	}
-
 	// Include workspace ID and repos so the daemon can set up worktrees.
 	// Project context, repo precedence and the tenant/failure rules around both
 	// live in resolveClaimProjectContext, which every claim path shares.
@@ -2848,22 +2831,14 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 					}
 				}
 				resp.TriggerAuthorType = comment.AuthorType
-				// The triggering comment's author is the task initiator — the
-				// real requester behind this run. Surface it (type + id + name,
-				// plus email for members) so a workspace-visible agent can
-				// attribute the request to the right person instead of to the
-				// runtime owner. Same lookups as the display name above; we just
-				// also capture the id and email. See MUL-2645.
-				resp.InitiatorType = comment.AuthorType
-				if comment.AuthorID.Valid {
-					resp.InitiatorID = uuidToString(comment.AuthorID)
-				}
+				// Preserve the direct trigger actor independently from the human
+				// whose authority this run uses. They can differ on delegated runs
+				// and manual reruns of comment-triggered tasks.
 				switch comment.AuthorType {
 				case "agent":
 					if comment.AuthorID.Valid {
 						if a, err := h.Queries.GetAgent(r.Context(), comment.AuthorID); err == nil {
 							resp.TriggerAuthorName = a.Name
-							resp.InitiatorName = a.Name
 						}
 					}
 				case "member":
@@ -2872,8 +2847,6 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 					if comment.AuthorID.Valid {
 						if u, err := h.Queries.GetUser(r.Context(), comment.AuthorID); err == nil {
 							resp.TriggerAuthorName = u.Name
-							resp.InitiatorName = u.Name
-							resp.InitiatorEmail = u.Email
 						}
 					}
 				}
@@ -3702,6 +3675,20 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			status:  http.StatusUnprocessableEntity,
 			message: reason,
 		}
+	}
+
+	// Hydrate attribution only after every source/workspace/version gate has
+	// passed so a rejected claim cannot receive another user's profile data.
+	// The existing flat initiator fields carry the run's authorization human to
+	// installed daemons as well as current ones. Direct trigger authors remain
+	// available separately through trigger_author_*.
+	h.hydrateTaskAttributions(r.Context(), []*TaskAttribution{resp.Attribution})
+	if resp.Attribution != nil && resp.Attribution.Originator != nil {
+		originator := resp.Attribution.Originator
+		resp.InitiatorType = "member"
+		resp.InitiatorID = originator.ID
+		resp.InitiatorName = originator.Name
+		resp.InitiatorEmail = originator.Email
 	}
 
 	return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, nil

@@ -78,10 +78,19 @@ func registerActivityListeners(bus *events.Bus, queries *db.Queries) {
 
 		if statusChanged {
 			prevStatus, _ := payload["prev_status"].(string)
-			details, _ := json.Marshal(map[string]string{
+			detailsMap := map[string]string{
 				"from": prevStatus,
 				"to":   issue.Status,
-			})
+			}
+			// PR auto-complete (MUL-7429): say why the status moved, so the
+			// timeline explains the change without a hidden rule.
+			if source, _ := payload["source"].(string); source == "pr_automation" {
+				detailsMap["source"] = source
+				if prs, _ := payload["pull_requests"].(string); prs != "" {
+					detailsMap["pull_requests"] = prs
+				}
+			}
+			details, _ := json.Marshal(detailsMap)
 			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
 				ID:          dbid.NewV7(),
 				WorkspaceID: parseUUID(issue.WorkspaceID),
