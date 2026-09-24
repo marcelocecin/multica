@@ -1,5 +1,5 @@
--- 545 is intentionally unused. Upstream main already owns 535-544, so this
--- table is 546 and its concurrent indexes are 547 and 548.
+-- Table is 548. Concurrent indexes are 549 and 550. Upstream main owns
+-- 545-547 (PR auto-complete and its workspace indexes).
 -- Derived plan-limit snapshots reported by a local daemon. Tokens, cookies,
 -- and auth.json contents are not columns on purpose: the daemon uploads
 -- only provider, window, percent, reset, plan, and collected_at.
