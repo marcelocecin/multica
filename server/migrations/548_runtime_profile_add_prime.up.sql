@@ -12,8 +12,8 @@
 -- versions out of order (see internal/migrations.AllVersions), so a prefix
 -- below 441 would run *after* codearts on any database that already applied
 -- it, and this rewritten CHECK would silently revoke the codearts family.
--- 545 is above every version currently on main.  440, 441, 444, 446, 451,
--- 457, 468, 491, 500 and 535 were each free when this migration was
+-- 548 is above every version currently on main.  440, 441, 444, 446, 451,
+-- 457, 468, 491, 500, 535 and 545 were each free when this migration was
 -- renumbered onto them, and each was then taken: 440 by
 -- 440_github_pr_head_sha_index (#7695), 441 by
 -- 441_runtime_profile_add_codearts (#6985), 444 by
@@ -23,13 +23,13 @@
 -- 457_task_message_output_truncated (#8212), 468 by
 -- 468_drop_reference_only_column (#8253), 491 by
 -- 491_issue_status_category_backfill (#8466), 500 by
--- 500_task_message_call_id (#8567), and 535 by
--- 535_github_pr_address_index (#8636).  main now reaches 544 (536-537 mark
--- issue duplicates, 538-544 add task supplements), so 545 is the next free
--- prefix.  None of 442-544 is a family migration (501 adds the
--- runtime_type column but leaves this constraint alone), so 441
--- remains this migration's predecessor in the chain and the family list below
--- is unchanged from the previous prefix.
+-- 500_task_message_call_id (#8567), 535 by
+-- 535_github_pr_address_index (#8636), and 545 by
+-- 545_pr_auto_complete (#8758), which also added 546 and 547.  main now
+-- reaches 547, so 548 is the next free prefix.  None of 442-547 is a family
+-- migration (501 adds the runtime_type column but leaves this constraint
+-- alone), so 441 remains this migration's predecessor in the chain and the
+-- family list below is unchanged from the previous prefix.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
