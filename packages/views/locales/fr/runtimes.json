@@ -505,6 +505,7 @@
       "reason_not_logged_in": "Non connecté sur cette machine.",
       "reason_api_key_only": "Cette connexion Codex est une clé API : les limites du forfait ne sont pas disponibles.",
       "reason_unauthorized": "La session locale a été refusée. Reconnectez-vous dans le CLI ou l'éditeur.",
+      "reason_credential_expired": "La connexion locale a expiré. Ouvrez l'application pour la renouveler.",
       "reason_cli_unavailable": "Le CLI n'est pas installé sur cette machine.",
       "reason_session_unavailable": "Aucune session d'éditeur locale n'a été trouvée sur cette machine.",
       "reason_unsupported": "Les limites du forfait ne peuvent pas être lues sur cette machine.",

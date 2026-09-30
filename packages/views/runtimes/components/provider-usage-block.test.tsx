@@ -122,6 +122,31 @@ describe("ProviderUsageBlock", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows an expired local sign-in as an empty snapshot", () => {
+    queryResult.current = {
+      isLoading: false,
+      data: {
+        providers: [
+          {
+            provider: "opencode",
+            reason_code: "credential_expired",
+            windows: [],
+          },
+        ],
+      },
+    };
+
+    render(
+      <ProviderUsageBlock wsId="ws-1" runtimeId="rt-1" provider="opencode" />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.getByText("OpenCode")).toBeInTheDocument();
+    expect(
+      screen.getByText("The local sign-in has expired. Open the app to renew it."),
+    ).toBeInTheDocument();
+  });
+
   it("shows the waiting state for an unknown runtime instead of other vendors", () => {
     queryResult.current = {
       isLoading: false,

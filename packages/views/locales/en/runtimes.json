@@ -505,6 +505,7 @@
       "reason_not_logged_in": "Not signed in on this machine.",
       "reason_api_key_only": "This Codex login is an API key, so plan limits are not available.",
       "reason_unauthorized": "The local session was rejected. Sign in again in the CLI or editor.",
+      "reason_credential_expired": "The local sign-in has expired. Open the app to renew it.",
       "reason_cli_unavailable": "The CLI is not installed on this machine.",
       "reason_session_unavailable": "No local editor session was found on this machine.",
       "reason_unsupported": "Plan limits cannot be read on this machine.",

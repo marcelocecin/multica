@@ -210,6 +210,8 @@ function reasonLabel(
       return t(($) => $.usage.provider_limits.reason_api_key_only);
     case "unauthorized":
       return t(($) => $.usage.provider_limits.reason_unauthorized);
+    case "credential_expired":
+      return t(($) => $.usage.provider_limits.reason_credential_expired);
     case "cli_unavailable":
       return t(($) => $.usage.provider_limits.reason_cli_unavailable);
     case "session_unavailable":

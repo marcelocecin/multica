@@ -34,6 +34,7 @@ var providerUsageReasons = map[string]struct{}{
 	"not_logged_in":       {},
 	"api_key_only":        {},
 	"unauthorized":        {},
+	"credential_expired":  {},
 	"cli_unavailable":     {},
 	"session_unavailable": {},
 	"unsupported":         {},

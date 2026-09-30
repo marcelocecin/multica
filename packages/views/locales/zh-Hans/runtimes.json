@@ -489,6 +489,7 @@
       "reason_not_logged_in": "这台机器上尚未登录。",
       "reason_api_key_only": "此 Codex 登录使用的是 API key，无法读取套餐额度。",
       "reason_unauthorized": "本地会话已被拒绝。请在 CLI 或编辑器中重新登录。",
+      "reason_credential_expired": "本地登录已过期。请打开应用续期。",
       "reason_cli_unavailable": "这台机器上没有安装对应的 CLI。",
       "reason_session_unavailable": "这台机器上没有找到本地编辑器会话。",
       "reason_unsupported": "这台机器上无法读取套餐额度。",

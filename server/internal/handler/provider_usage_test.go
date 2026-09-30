@@ -85,6 +85,14 @@ func TestNormalizeProviderUsageReport(t *testing.T) {
 	}); err == nil {
 		t.Fatal("unknown reason accepted")
 	}
+	expired, err := normalizeProviderUsageReport(providerUsageReport{
+		Provider:    "opencode",
+		CollectedAt: collected,
+		ReasonCode:  "credential_expired",
+	})
+	if err != nil || expired.ReasonCode != "credential_expired" || len(expired.Windows) != 0 {
+		t.Fatalf("credential_expired = %+v err=%v", expired, err)
+	}
 	if _, err := normalizeProviderUsageReport(providerUsageReport{
 		Provider:    "cursor",
 		CollectedAt: collected,

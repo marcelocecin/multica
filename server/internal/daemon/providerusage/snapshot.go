@@ -19,6 +19,7 @@ const (
 	ReasonNotLoggedIn        = "not_logged_in"
 	ReasonAPIKeyOnly         = "api_key_only"
 	ReasonUnauthorized       = "unauthorized"
+	ReasonCredentialExpired  = "credential_expired"
 	ReasonCLIUnavailable     = "cli_unavailable"
 	ReasonSessionUnavailable = "session_unavailable"
 	ReasonUnsupported        = "unsupported"

@@ -489,6 +489,7 @@
       "reason_not_logged_in": "このマシンではログインしていません。",
       "reason_api_key_only": "この Codex ログインは API キーのため、プラン上限は表示できません。",
       "reason_unauthorized": "ローカルセッションが拒否されました。CLI またはエディタで再ログインしてください。",
+      "reason_credential_expired": "ローカルのサインインの有効期限が切れています。アプリを開いて更新してください。",
       "reason_cli_unavailable": "このマシンに CLI がインストールされていません。",
       "reason_session_unavailable": "このマシンでローカルのエディタセッションが見つかりません。",
       "reason_unsupported": "このマシンではプラン上限を読み取れません。",
