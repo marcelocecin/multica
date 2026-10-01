@@ -31,6 +31,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 	"github.com/multica-ai/multica/server/internal/selfexec"
+	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
@@ -6813,11 +6814,15 @@ func shouldReusePriorWorkdir(task Task, localAssignment *localDirectoryAssignmen
 		return "", false
 	}
 
-	root, err := filepath.EvalSymlinks(workspacesRoot)
+	// util.ResolveSymlinks, not filepath.EvalSymlinks: on Windows the latter
+	// cannot pass through a directory junction, so a junctioned workspaces
+	// root silently declined every reuse and each follow-up lost its session
+	// (#8946).
+	root, err := util.ResolveSymlinks(workspacesRoot)
 	if err != nil {
 		return "", false
 	}
-	workdir, err := filepath.EvalSymlinks(task.PriorWorkDir)
+	workdir, err := util.ResolveSymlinks(task.PriorWorkDir)
 	if err != nil {
 		return "", false
 	}
@@ -7263,11 +7268,12 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 		return nil, "", nil, false, nil
 	}
 	priorRoot := filepath.Dir(workDir)
-	// workDir came back through EvalSymlinks, so the root it is measured
-	// against has to be resolved the same way — otherwise a symlinked
-	// workspaces root (macOS /tmp -> /private/tmp, a home on a linked volume)
-	// makes the two look unrelated and every reuse is refused.
-	canonicalWorkspacesRoot, err := filepath.EvalSymlinks(d.cfg.WorkspacesRoot)
+	// workDir came back through util.ResolveSymlinks, so the root it is
+	// measured against has to be resolved the same way — otherwise a symlinked
+	// workspaces root (macOS /tmp -> /private/tmp, a home on a linked volume,
+	// a Windows junction to another drive) makes the two look unrelated and
+	// every reuse is refused.
+	canonicalWorkspacesRoot, err := util.ResolveSymlinks(d.cfg.WorkspacesRoot)
 	if err != nil {
 		return nil, "", nil, false, nil
 	}
