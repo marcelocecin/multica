@@ -36,6 +36,9 @@
     "steer_step": "{{name}} added",
     "steer_step_read": "Read"
   },
+  "working_filter_error": {
+    "title": "Couldn't load issues with working agents"
+  },
   "status_catalog_error": {
     "title": "Couldn't load the status list",
     "hint": "Issues can't be shown until statuses load.",
