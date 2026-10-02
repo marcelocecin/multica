@@ -23,6 +23,15 @@ var antigravityWindowOrder = []string{
 // AntigravityCollector reads Cloud Code quota with the OAuth file Gemini /
 // Antigravity already wrote. It does not prompt the keychain or scan for a
 // local language-server port. An expired token is left for the CLI to refresh.
+//
+// CodeNotch 1.21.0 starts Antigravity's language_server when no IDE or CLI
+// process is listening. This collector does not. That child reads the login
+// keychain, may refresh the session, and is kept for later polls: it binds
+// quickly, then spends several seconds authenticating. The binary CodeNotch
+// launches is the macOS app bundle; that release does not spawn one on
+// Windows. ~/.gemini/oauth_creds.json remains after the IDE exits, so a
+// closed IDE is already covered here. A vendor 403 uploads an empty
+// unauthorized snapshot.
 type AntigravityCollector struct {
 	AuthPath string
 	Do       HTTPDoer
