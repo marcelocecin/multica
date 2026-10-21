@@ -14,7 +14,7 @@
 -- below 583 would run *after* muse on any database that already applied it,
 -- and this rewritten CHECK would silently revoke the muse family.  A prefix
 -- above 583 runs after muse and must carry `muse` or it revokes that family.
--- 586 is above every version currently on main.  440, 441, 444, 446, 451,
+-- 588 is above every version currently on main.  440, 441, 444, 446, 451,
 -- 457, 468, 491, 500, 535, 545, 548 and 567 were each free when this migration
 -- was renumbered onto them, and each was then taken: 440 by
 -- 440_github_pr_head_sha_index (#7695), 441 by
@@ -32,10 +32,12 @@
 -- 567_channel_typing_reaction_retry_idx (#8656).  main at v0.6.3 reached 582
 -- (issue workflow; 580 is unused), which took 573-579 and 581-582, including
 -- 576_issue_workflow_workspace_name_index, and has since taken 583
--- (583_runtime_profile_add_muse) and 584 (584_quick_action_optional_target).
--- 585 is unused on main.  Prefix 586 was chosen to avoid colliding with
--- main and the sibling plan-usage PR, so this migration stays 586.  501
--- adds the runtime_type column but leaves this constraint alone.
+-- (583_runtime_profile_add_muse), 584 (584_quick_action_optional_target),
+-- 585 (585_issue_workflow_owner), 586 (586_cloud_agent_connection, #9402)
+-- and 587 (587_cloud_agent_connection_provider_index).  Prefix 588 stays
+-- above main's max (587) and below the sibling plan-usage PR, which takes
+-- 589, 590 and 591.  501 adds the runtime_type column but leaves this
+-- constraint alone.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
