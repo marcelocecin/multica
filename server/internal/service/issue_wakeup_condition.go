@@ -259,9 +259,10 @@ func (s *IssueWakeupService) evaluateCondition(ctx context.Context, tx pgx.Tx, q
 		met, fingerprint, observed := childrenDone(c, children)
 		return met, fingerprint, observed, nil
 	case "pull_request":
-		if c.Event == "checks_finished" && (s.Tasks == nil || !s.Tasks.PRSnapshotsEnabled) {
-			return false, "", nil, errPRSnapshotsUnavailable
-		}
+		// Without the snapshot client GitHub rows are never refreshed, so their
+		// checks neither satisfy nor stall the rule. Self-hosted VCS rows carry
+		// their own commit statuses and are evaluated regardless (#9034).
+		githubChecks := c.Event != "checks_finished" || (s.Tasks != nil && s.Tasks.PRSnapshotsEnabled)
 		rows, err := tx.Query(ctx, `SELECT pr.pr_number,pr.state,COALESCE(pr.snapshot_head_sha,''),COALESCE(pr.checks_rollup_state,'')
 			FROM github_pull_request pr JOIN issue_pull_request ipr ON ipr.pull_request_id=pr.id WHERE ipr.issue_id=$1`, w.IssueID)
 		if err != nil {
@@ -278,7 +279,6 @@ func (s *IssueWakeupService) evaluateCondition(ctx context.Context, tx pgx.Tx, q
 				return false, "", nil, err
 			}
 			linked++
-			missingSnapshot = missingSnapshot || head == ""
 			switch c.Event {
 			case "merged":
 				if state == "merged" {
@@ -286,6 +286,10 @@ func (s *IssueWakeupService) evaluateCondition(ctx context.Context, tx pgx.Tx, q
 					prs = append(prs, map[string]any{"number": number, "state": state})
 				}
 			case "checks_finished":
+				if !githubChecks {
+					continue
+				}
+				missingSnapshot = missingSnapshot || head == ""
 				if head != "" && slices.Contains([]string{"SUCCESS", "FAILURE", "ERROR"}, checks) {
 					keys = append(keys, fmt.Sprintf("%d@%s:%s", number, head, checks))
 					prs = append(prs, map[string]any{"number": number, "head_sha": head, "checks": strings.ToLower(checks)})
@@ -296,12 +300,72 @@ func (s *IssueWakeupService) evaluateCondition(ctx context.Context, tx pgx.Tx, q
 		if err = rows.Err(); err != nil {
 			return false, "", nil, err
 		}
-		if linked == 0 {
-			return false, "", nil, errPRNotLinked
+		// Self-hosted VCS pull requests (Forgejo/Gitea/GitLab) live in their own
+		// tables. Roll up each PR's commit statuses for its current head sha,
+		// grouped by PR id like ListVCSPullRequestsByIssue: any failed status =
+		// FAILURE, all passed (at least one) = SUCCESS, pending or none = not
+		// finished. PR numbers and shas can repeat across connections and
+		// repositories, so both the rollup and the fingerprint key on the PR id.
+		vcsLinked := 0
+		vcsRows, err := tx.Query(ctx, `SELECT pr.id,pr.pr_number,pr.provider,pr.state,pr.head_sha,
+				COALESCE(SUM(CASE WHEN cs.state='failed' THEN 1 ELSE 0 END),0),
+				COALESCE(SUM(CASE WHEN cs.state='pending' THEN 1 ELSE 0 END),0),
+				COUNT(cs.state)
+			FROM vcs_pull_request pr
+			JOIN issue_vcs_pull_request ipr ON ipr.pull_request_id=pr.id
+			LEFT JOIN vcs_commit_status cs ON cs.connection_id=pr.connection_id AND cs.sha=pr.head_sha AND pr.head_sha<>''
+			WHERE ipr.issue_id=$1
+			GROUP BY pr.id`, w.IssueID)
+		if err != nil {
+			return false, "", nil, err
 		}
-		// Any matching PR satisfies the rule, even if another awaits a snapshot.
-		if c.Event == "checks_finished" && len(keys) == 0 && missingSnapshot {
-			return false, "", nil, errPRSnapshotPending
+		for vcsRows.Next() {
+			var id pgtype.UUID
+			var number int32
+			var provider, state, head string
+			var failed, pending, total int64
+			if err = vcsRows.Scan(&id, &number, &provider, &state, &head, &failed, &pending, &total); err != nil {
+				vcsRows.Close()
+				return false, "", nil, err
+			}
+			vcsLinked++
+			switch c.Event {
+			case "merged":
+				if state == "merged" {
+					keys = append(keys, "vcs:"+util.UUIDToString(id))
+					prs = append(prs, map[string]any{"number": number, "provider": provider, "state": state})
+				}
+			case "checks_finished":
+				checks := ""
+				switch {
+				case failed > 0:
+					checks = "FAILURE"
+				case total > 0 && pending == 0:
+					checks = "SUCCESS"
+				}
+				if head != "" && checks != "" {
+					keys = append(keys, fmt.Sprintf("vcs:%s@%s:%s", util.UUIDToString(id), head, checks))
+					prs = append(prs, map[string]any{"number": number, "provider": provider, "head_sha": head, "checks": strings.ToLower(checks)})
+				}
+			}
+		}
+		vcsRows.Close()
+		if err = vcsRows.Err(); err != nil {
+			return false, "", nil, err
+		}
+		// Any matching PR satisfies the rule; diagnostics only explain a wait.
+		if len(keys) == 0 {
+			// GitHub-only (or unlinked) checks rules cannot progress without the
+			// snapshot client; a rule with VCS PRs waits for their statuses.
+			if !githubChecks && (linked > 0 || vcsLinked == 0) {
+				return false, "", nil, errPRSnapshotsUnavailable
+			}
+			if linked == 0 && vcsLinked == 0 {
+				return false, "", nil, errPRNotLinked
+			}
+			if c.Event == "checks_finished" && missingSnapshot {
+				return false, "", nil, errPRSnapshotPending
+			}
 		}
 		sort.Strings(keys)
 		return len(keys) > 0, "pr:" + strings.Join(keys, ","), map[string]any{"pull_requests": prs}, nil
@@ -438,23 +502,15 @@ func (s *IssueWakeupService) baselineCondition(ctx context.Context, tx pgx.Tx, q
 	return q.SetWakeupConditionState(ctx, db.SetWakeupConditionStateParams{ID: w.ID, ConditionState: fingerprint, NextFireAt: pgtype.Timestamptz{Time: now.Add(conditionPollInterval), Valid: true}})
 }
 
-// saveConditionDiagnostic owns only last_error values carrying its prefix.
-// Dispatch failures share the column and must survive a condition poll. Avoid
-// rewriting an unchanged diagnostic on every polling interval as well.
+// A completed evaluation replaces the previous pass's error with its current
+// diagnostic. Later dispatch failures roll this write back and are recorded
+// outside the transaction. Avoid rewriting unchanged diagnostics on every poll.
 func saveConditionDiagnostic(ctx context.Context, q *db.Queries, w db.IssueWakeup, diagnostic error) error {
-	owned := w.LastError.Valid && strings.HasPrefix(w.LastError.String, conditionDiagnosticPrefix)
 	var lastError pgtype.Text
 	if diagnostic != nil {
 		lastError = pgtype.Text{String: conditionDiagnosticPrefix + diagnostic.Error(), Valid: true}
-		if w.LastError.Valid {
-			if w.LastError.String == lastError.String {
-				return nil
-			}
-			if !owned {
-				return nil
-			}
-		}
-	} else if !owned {
+	}
+	if w.LastError == lastError {
 		return nil
 	}
 	return q.NoteWakeupFailure(ctx, db.NoteWakeupFailureParams{ID: w.ID, LastError: lastError})

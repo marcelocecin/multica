@@ -1590,8 +1590,7 @@
       "step_off": "Désactivé : ce workflow n’utilise pas ce statut. Activez-le dans la liste des étapes pour l’utiliser.",
       "status_new_hint": "Nouveau statut. Il sera ajouté à la bibliothèque de statuts à l’enregistrement.",
       "no_other_status": "Tous les statuts sont déjà des étapes.",
-      "no_handoff_step": "Cette étape ne relaie pas : le responsable ne change pas et aucune exécution ne démarre.",
-      "new_step_handoff": "Enregistrez d’abord le workflow ; le nouveau statut pourra relayer ensuite."
+      "no_handoff_step": "Cette étape ne relaie pas : le responsable ne change pas et aucune exécution ne démarre."
     },
     "mapping": {
       "title": "Déplacer les tâches vers {{name}}",
@@ -1634,6 +1633,7 @@
     },
     "picker": {
       "header": "{{workflow}} · selon le projet « {{project}} »",
+      "header_no_project": "Statuts {{workflow}} · sans projet",
       "footer": "Seuls les états du workflow de cette tâche sont affichés. À droite : à qui elle est confiée en entrant dans l’état."
     },
     "confirm": {

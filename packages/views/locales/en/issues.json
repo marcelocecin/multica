@@ -1590,8 +1590,7 @@
       "step_off": "Switched off: this workflow leaves the status out. Turn it on in the step list to use it.",
       "status_new_hint": "A new status. It is added to the status library when you save.",
       "no_other_status": "Every status is already a step.",
-      "no_handoff_step": "This step doesn't hand off: issues entering it keep their assignee and start no run.",
-      "new_step_handoff": "Save the workflow first; the new status can hand off after that."
+      "no_handoff_step": "This step doesn't hand off: issues entering it keep their assignee and start no run."
     },
     "mapping": {
       "title": "Move issues into {{name}}",
@@ -1634,6 +1633,7 @@
     },
     "picker": {
       "header": "{{workflow}} · from project “{{project}}”",
+      "header_no_project": "{{workflow}} statuses · no project",
       "footer": "Only this issue’s workflow statuses are shown. The right side is who entering the status hands it to."
     },
     "confirm": {
