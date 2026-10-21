@@ -27,14 +27,14 @@ vi.mock("../common/actor-avatar", () => ({
   ActorAvatar: ({ actorId }: { actorId: string }) => <span data-testid={`avatar-${actorId}`} />,
 }));
 
-function renderEditor() {
+function renderEditor(props: { template?: "content"; canCreateStatus?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   qc.setQueryData(projectListOptions("ws-1").queryKey, [] as never);
   qc.setQueryData(agentListOptions("ws-1").queryKey, [{ id: "agent-1", name: "Builder", archived_at: null }] as never);
   qc.setQueryData(memberListOptions("ws-1").queryKey, [] as never);
   renderWithI18n(
     <QueryClientProvider client={qc}>
-      <WorkflowEditorPage workflowId={null} seed={null} canEdit onBack={vi.fn()} onOpen={vi.fn()} />
+      <WorkflowEditorPage workflowId={null} seed={null} canEdit onBack={vi.fn()} onOpen={vi.fn()} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -92,6 +92,21 @@ describe("WorkflowEditorPage", () => {
     // The explicit choices still list only statuses that exist before the save.
     fireEvent.click(screen.getByRole("combobox", { name: "When done, move to" }));
     expect(screen.queryByRole("option", { name: "Deploy" })).toBeNull();
+  });
+});
+
+// Statuses are shared by every board, so only admins add them (MUL-8120).
+describe("WorkflowEditorPage status creation", () => {
+  it("blocks saving a template that needs new statuses for a member", () => {
+    renderEditor({ template: "content", canCreateStatus: false });
+    expect(screen.getByRole("alert").textContent).toMatch(/Only workspace admins can add statuses/);
+    expect(screen.getByRole("button", { name: "Create" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("lets an admin save the same template", () => {
+    renderEditor({ template: "content", canCreateStatus: true });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Create" }).hasAttribute("disabled")).toBe(false);
   });
 });
 
