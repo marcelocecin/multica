@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, clientErrorMessage } from "@multica/core/api";
@@ -276,16 +276,29 @@ export function HandoffFields({
   canEdit,
   onPatch,
   onPreview,
+  defaultNextLabel,
 }: {
   step: IssueWorkflowStep;
+  /** The statuses next and back may name. */
   workflow: Pick<IssueWorkflow, "steps">;
   canEdit: boolean;
   onPatch: (patch: Partial<IssueWorkflowStep>) => void;
   onPreview?: () => void;
+  /**
+   * The default next status's label ("" for none), when it is resolved
+   * against more columns than `workflow` lists — the editor's unsaved ones.
+   */
+  defaultNextLabel?: string;
 }) {
   const { t } = useT("issues");
+  const wsId = useWorkspaceId();
+  const labelOf = useStatusLabel(wsId);
   const mode = modeOf(step.handler);
+  // Not derived from the status key: a step for a status still to be created
+  // goes by a draft id that need not be a valid element id.
+  const instructionsId = useId();
   const nextDefault = workflowNextStatus({ steps: workflow.steps.map((s) => ({ ...s, next_status_key: undefined })) }, step.status_key);
+  const nextDefaultLabel = defaultNextLabel ?? (nextDefault ? labelOf(nextDefault) : "");
   const choose = (m: HandoffMode) => {
     if (m === mode) return;
     onPatch({ handler: m === "none" ? { type: "none" } : { type: m } });
@@ -348,10 +361,10 @@ export function HandoffFields({
           <Field
             label={t(($) => $.workflows.handoff.instructions)}
             hint={t(($) => $.workflows.editor.instructions_hint)}
-            htmlFor={`workflow-handoff-instructions-${step.status_key}`}
+            htmlFor={instructionsId}
           >
             <Textarea
-              id={`workflow-handoff-instructions-${step.status_key}`}
+              id={instructionsId}
               rows={4}
               maxLength={8000}
               readOnly={!canEdit}
@@ -364,7 +377,7 @@ export function HandoffFields({
             step={step}
             workflow={workflow}
             canEdit={canEdit}
-            nextDefault={nextDefault}
+            nextDefaultLabel={nextDefaultLabel}
             onPatch={onPatch}
             onPreview={onPreview}
           />
@@ -474,14 +487,15 @@ function NextBackFields({
   step,
   workflow,
   canEdit,
-  nextDefault,
+  nextDefaultLabel,
   onPatch,
   onPreview,
 }: {
   step: IssueWorkflowStep;
   workflow: Pick<IssueWorkflow, "steps">;
   canEdit: boolean;
-  nextDefault: string | null;
+  /** The default next status's label; empty when there is none. */
+  nextDefaultLabel: string;
   onPatch: (patch: Partial<IssueWorkflowStep>) => void;
   onPreview?: () => void;
 }) {
@@ -507,8 +521,8 @@ function NextBackFields({
           const field = kind === "next" ? "next_status_key" : "back_status_key";
           const value = step[field];
           const unsetLabel =
-            kind === "next" && nextDefault
-              ? t(($) => $.workflows.handoff.next_default, { status: labelOf(nextDefault) })
+            kind === "next" && nextDefaultLabel
+              ? t(($) => $.workflows.handoff.next_default, { status: nextDefaultLabel })
               : t(($) => $.workflows.editor.none_option);
           const options = [{ value: NOT_SET, label: unsetLabel }, ...others.map((key) => ({ value: key, label: labelOf(key) }))];
           return (
