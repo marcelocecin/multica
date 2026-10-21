@@ -56,6 +56,8 @@ import type {
   IssueWorkflowStepInput,
 } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
+import { IconButton } from "@multica/ui/components/common/icon-button";
+import { TooltipHint } from "@multica/ui/components/common/tooltip-hint";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -169,6 +171,8 @@ export function WorkflowEditorPage({
   seed,
   template,
   canEdit,
+  canDuplicate = canEdit,
+  canCreateStatus = canEdit,
   onBack,
   onOpen,
 }: {
@@ -177,6 +181,13 @@ export function WorkflowEditorPage({
   /** Pre-fills a new workflow from a template. */
   template?: WorkflowTemplateId | null;
   canEdit: boolean;
+  /** Duplicating creates a workflow, which any member may do. */
+  canDuplicate?: boolean;
+  /**
+   * Whether saving may add statuses to the workspace catalog: statuses are
+   * shared by every board, so only admins create them (MUL-8120).
+   */
+  canCreateStatus?: boolean;
   onBack: () => void;
   /** Navigates to another workflow's editor (after create, or to a duplicate). */
   onOpen: (target: { id: string } | { duplicateOf: string }) => void;
@@ -237,7 +248,11 @@ export function WorkflowEditorPage({
 
   const dirty = !workflowId || !sameDraft(draft, baseline);
   const pending = createWorkflow.isPending || updateWorkflow.isPending;
-  const canSave = canEdit && dirty && draft.name.trim().length > 0 && !pending;
+  // Statuses this save would create; a member must drop them or ask an admin.
+  const missingStatuses = canCreateStatus
+    ? []
+    : draft.middle.flatMap((c) => ("new_name" in c ? [c.new_name] : []));
+  const canSave = canEdit && dirty && draft.name.trim().length > 0 && !pending && missingStatuses.length === 0;
   const usedBy = saved
     ? projects.filter((p) => (saved.is_default ? !p.workflow_id : saved.project_ids.includes(p.id)))
     : [];
@@ -437,28 +452,30 @@ export function WorkflowEditorPage({
               </span>
             </p>
           </div>
-          {canEdit && (
+          {(canEdit || canDuplicate) && (
             <div className="flex shrink-0 items-center gap-2">
-              {dirty && workflowId && (
+              {canEdit && dirty && workflowId && (
                 <span className="text-caption text-muted-foreground">{t(($) => $.workflows.editor.unsaved)}</span>
               )}
-              {workflowId && (
+              {canDuplicate && workflowId && (
                 <Button variant="outline" className="gap-1.5" onClick={() => onOpen({ duplicateOf: workflowId })}>
                   <Copy className="size-3.5" />
                   {t(($) => $.workflows.editor.duplicate)}
                 </Button>
               )}
-              <Button onClick={() => void save()} disabled={!canSave} aria-busy={pending}>
-                {pending && <Spinner className="size-3.5" />}
-                {workflowId ? t(($) => $.workflows.editor.save) : t(($) => $.workflows.editor.create)}
-              </Button>
-              {workflowId && !isDefault && (
+              {canEdit && (
+                <Button onClick={() => void save()} disabled={!canSave} aria-busy={pending}>
+                  {pending && <Spinner className="size-3.5" />}
+                  {workflowId ? t(($) => $.workflows.editor.save) : t(($) => $.workflows.editor.create)}
+                </Button>
+              )}
+              {canEdit && workflowId && !isDefault && (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
-                      <Button variant="ghost" size="icon" aria-label={t(($) => $.workflows.editor.more)}>
+                      <IconButton variant="ghost" size="icon" label={t(($) => $.workflows.editor.more)} tooltipSide="bottom">
                         <MoreHorizontal className="size-4" />
-                      </Button>
+                      </IconButton>
                     }
                   />
                   <DropdownMenuContent align="end" className="w-56">
@@ -525,11 +542,15 @@ export function WorkflowEditorPage({
                       <span className="truncate">{labelOf(key)}</span>
                     </DropdownMenuItem>
                   ))}
-                  {addable.length > 0 && <DropdownMenuSeparator />}
-                  <DropdownMenuItem onClick={() => setNewName("")}>
-                    <Plus className="size-3.5" />
-                    {t(($) => $.workflows.columns.new_status)}
-                  </DropdownMenuItem>
+                  {canCreateStatus && (
+                    <>
+                      {addable.length > 0 && <DropdownMenuSeparator />}
+                      <DropdownMenuItem onClick={() => setNewName("")}>
+                        <Plus className="size-3.5" />
+                        {t(($) => $.workflows.columns.new_status)}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               {newName !== null && (
@@ -552,6 +573,13 @@ export function WorkflowEditorPage({
                 </div>
               )}
             </div>
+          )}
+          {canEdit && missingStatuses.length > 0 && (
+            <p role="alert" className="mt-2.5 text-caption leading-5 text-destructive">
+              {t(($) => $.workflows.editor.status_needs_admin, {
+                names: missingStatuses.join(t(($) => $.workflows.list_separator)),
+              })}
+            </p>
           )}
           <p className="mt-2.5 text-caption leading-5 text-muted-foreground">{t(($) => $.workflows.editor.steps_hint)}</p>
         </div>
@@ -693,14 +721,16 @@ function StepCard({
       )}
     >
       {sortable?.handle ? (
-        <button
-          type="button"
-          aria-label={t(($) => $.workflows.editor.reorder, { name: label })}
-          className="flex h-5 w-4 shrink-0 touch-none items-center justify-center rounded-xs cursor-grab text-muted-foreground active:cursor-grabbing"
-          {...sortable.handle}
-        >
-          <GripVertical className="size-3.5" />
-        </button>
+        <TooltipHint label={t(($) => $.workflows.editor.reorder, { name: label })}>
+          <button
+            type="button"
+            aria-label={t(($) => $.workflows.editor.reorder, { name: label })}
+            className="flex h-5 w-4 shrink-0 touch-none items-center justify-center rounded-xs cursor-grab text-muted-foreground active:cursor-grabbing"
+            {...sortable.handle}
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+        </TooltipHint>
       ) : (
         <span className="h-5 w-4 shrink-0" />
       )}
@@ -828,15 +858,15 @@ function StepDetail({
           <Badge>{t(($) => $.workflows.editor.new_badge)}</Badge>
         )}
         {onRemove && (
-          <Button
+          <IconButton
             variant="ghost"
             size="icon-sm"
             className="ml-auto text-muted-foreground"
-            aria-label={t(($) => $.workflows.editor.remove)}
+            label={t(($) => $.workflows.editor.remove)}
             onClick={onRemove}
           >
             <Trash2 className="size-3.5" />
-          </Button>
+          </IconButton>
         )}
       </header>
       <div className="space-y-6 p-5">

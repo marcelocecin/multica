@@ -10,6 +10,7 @@ const releaseWorkflow = {
   name: "版本发布",
   description: "",
   is_default: false,
+  owner_id: null,
   steps: [],
   project_ids: ["project-1"],
   created_at: "",
