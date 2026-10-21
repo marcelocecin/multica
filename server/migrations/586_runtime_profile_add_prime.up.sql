@@ -33,10 +33,9 @@
 -- (issue workflow; 580 is unused), which took 573-579 and 581-582, including
 -- 576_issue_workflow_workspace_name_index, and has since taken 583
 -- (583_runtime_profile_add_muse) and 584 (584_quick_action_optional_target).
--- 585 is unused on main.  Open PR #8679 (feat/provider-plan-usage) reserves
--- 583-585; those prefixes collide with main's 583-584 but not with 586, so
--- this migration stays 586.  501 adds the runtime_type column but leaves
--- this constraint alone.
+-- 585 is unused on main.  Prefix 586 was chosen to avoid colliding with
+-- main and the sibling plan-usage PR, so this migration stays 586.  501
+-- adds the runtime_type column but leaves this constraint alone.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
 ALTER TABLE runtime_profile ADD CONSTRAINT runtime_profile_protocol_family_check
