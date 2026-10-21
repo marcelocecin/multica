@@ -37,9 +37,11 @@ export function runtimeDisplayLabel(
  * (server/internal/daemon/daemon.go): the daemon bakes that display name into
  * `name` for the no-alias case (for example, "Trae (host)"), so the aliased label has to use
  * the exact same names or the two paths drift apart (#5260). `codearts`,
- * `qoderclicn`, `qoder_cloud`, `dsh`, `traecli`, `qwen`, `qwenpaw`, `mcode`,
- * `muse`, `omp`, `zeroclaw` and `prime` need overrides today — every other provider is a
- * first-letter capitalization of its slug on both sides. Keep in sync with the daemon map.
+ * `qoderclicn`, `dsh`, `traecli`, `qwen`, `qwenpaw`, `mcode`, `muse`, `omp`,
+ * `zeroclaw` and `prime` are overridden on both sides. `qoder_cloud` is
+ * overridden here only: the managed runtime sets its own name and is not in
+ * the daemon map. Every other provider is a first-letter capitalization of
+ * its slug. Keep the shared names in sync with the daemon map.
  */
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   codearts: "CodeArts",
