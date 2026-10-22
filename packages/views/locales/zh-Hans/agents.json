@@ -497,7 +497,7 @@
   },
   "conversation_starters": {
     "label": "对话开场建议",
-    "hint": "最多三条。点击后填入输入框，不会发送。",
+    "hint": "新建对话时显示。点击后填入输入框，不会发送。",
     "add": "添加建议",
     "item_label": "建议 {{number}} 的标题",
     "prompt_label": "建议 {{number}} 的提示词",
@@ -506,13 +506,21 @@
     "incomplete": "请填写完整或移除每条建议后再保存。",
     "remove": "移除建议 {{number}}",
     "preview_label": "新对话预览",
-    "preview_defaults": "以上是内置的默认值。在上方添加一条建议即可整组替换。"
+    "preview_defaults": "以上是内置建议。添加你自己的建议即可整组替换。",
+    "create_hint": "可选。新建与这个智能体的对话时显示。",
+    "edit": "编辑建议 {{number}}",
+    "remove_short": "移除",
+    "done": "完成",
+    "untitled": "未命名建议",
+    "customize": "自定义",
+    "defaults_summary_other": "正在使用 {{count}} 条内置建议"
   },
   "tab_body": {
     "common": {
       "save": "保存",
       "add": "添加",
-      "unsaved_changes": "未保存的修改"
+      "unsaved_changes": "未保存的修改",
+      "discard": "放弃修改"
     },
     "instructions": {
       "intro": "设置每次运行都会使用的 System Prompt，支持 Markdown。",
@@ -524,7 +532,12 @@
       "system_layer_hide": "收起",
       "workspace_notes_label": "工作区补充",
       "workspace_notes_intro": "在下面补充你们团队的上下文和偏好，它们会叠加在 Multica 为这个智能体维护的指令之上。支持 Markdown。",
-      "workspace_notes_placeholder": "写下这个智能体应该始终知道的上下文。\n\n# 示例\n我们的主仓库是 github.com/acme/platform。\n即使聊天用中文，任务也一律用英文写。\n周五不部署。"
+      "workspace_notes_placeholder": "写下这个智能体应该始终知道的上下文。\n\n# 示例\n我们的主仓库是 github.com/acme/platform。\n即使聊天用中文，任务也一律用英文写。\n周五不部署。",
+      "mode_aria": "编辑模式",
+      "mode_write": "编辑",
+      "mode_preview": "预览",
+      "preview_empty": "还没有可预览的内容。",
+      "char_count_other": "{{count}} 个字符"
     },
     "env": {
       "intro_readonly": "在智能体进程启动时注入。只有工作区所有者 / 管理员可以查看或编辑值；每次解锁和编辑都会写入工作区审计日志。",

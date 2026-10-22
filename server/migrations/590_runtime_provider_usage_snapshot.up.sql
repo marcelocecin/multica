@@ -1,7 +1,9 @@
--- Table is 589. Concurrent indexes are 590 and 591. Upstream main owns
+-- Table is 590. Concurrent indexes are 591 and 592. Upstream main owns
 -- 583 (runtime_profile_add_muse), 584 (quick_action_optional_target),
--- 585 (issue_workflow_owner), 586 (cloud_agent_connection, #9402) and
--- 587 (cloud_agent_connection_provider_index). Sibling PR #6641 takes 588.
+-- 585 (issue_workflow_owner), 586 (cloud_agent_connection, #9402),
+-- 587 (cloud_agent_connection_provider_index) and 588
+-- (588_daemon_token_owner, #9423). Sibling PR #6641 takes 589
+-- (589_runtime_profile_add_prime).
 -- Derived plan-limit snapshots reported by a local daemon. Tokens, cookies,
 -- and auth.json contents are not columns on purpose: the daemon uploads
 -- only provider, window, percent, reset, plan, and collected_at.

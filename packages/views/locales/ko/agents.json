@@ -342,7 +342,7 @@
   },
   "conversation_starters": {
     "label": "대화 시작 예시",
-    "hint": "최대 3개입니다. 선택하면 입력란에 채워지며 전송되지 않습니다.",
+    "hint": "이 에이전트와 새 채팅을 시작하면 표시됩니다. 선택하면 입력란에 채워지며 전송되지 않습니다.",
     "add": "추천 추가",
     "item_label": "추천 {{number}} 라벨",
     "prompt_label": "추천 {{number}} 프롬프트",
@@ -351,13 +351,21 @@
     "incomplete": "각 제안을 완성하거나 삭제한 후 저장하세요.",
     "remove": "추천 {{number}} 삭제",
     "preview_label": "새 채팅 미리보기",
-    "preview_defaults": "지금은 기본 예시입니다. 위에서 하나를 추가하면 세 개 모두 교체됩니다."
+    "preview_defaults": "지금은 기본 추천입니다. 직접 추가하면 세 개 모두 교체됩니다.",
+    "create_hint": "선택 사항입니다. 이 에이전트와의 새 채팅에 표시됩니다.",
+    "edit": "추천 {{number}} 편집",
+    "remove_short": "삭제",
+    "done": "완료",
+    "untitled": "제목 없는 추천",
+    "customize": "사용자 지정",
+    "defaults_summary_other": "기본 추천 {{count}}개 사용 중"
   },
   "tab_body": {
     "common": {
       "save": "저장",
       "add": "추가",
-      "unsaved_changes": "저장하지 않은 변경사항"
+      "unsaved_changes": "저장하지 않은 변경사항",
+      "discard": "변경 취소"
     },
     "instructions": {
       "intro": "모든 실행에 사용할 System Prompt를 설정하세요. Markdown을 지원합니다.",
@@ -369,7 +377,12 @@
       "system_layer_hide": "접기",
       "workspace_notes_label": "워크스페이스 메모",
       "workspace_notes_intro": "팀의 컨텍스트와 선호를 아래에 추가하세요. Multica가 이 에이전트를 위해 관리하는 지침 위에 적용됩니다. Markdown을 지원합니다.",
-      "workspace_notes_placeholder": "이 에이전트가 항상 알아야 할 내용을 적으세요.\n\n# 예시\n메인 저장소는 github.com/acme/platform입니다.\n채팅은 한국어로 해도 태스크는 영어로 작성하세요.\n금요일에는 배포하지 않습니다."
+      "workspace_notes_placeholder": "이 에이전트가 항상 알아야 할 내용을 적으세요.\n\n# 예시\n메인 저장소는 github.com/acme/platform입니다.\n채팅은 한국어로 해도 태스크는 영어로 작성하세요.\n금요일에는 배포하지 않습니다.",
+      "mode_aria": "편집 모드",
+      "mode_write": "작성",
+      "mode_preview": "미리보기",
+      "preview_empty": "아직 미리 볼 내용이 없습니다.",
+      "char_count_other": "{{count}}자"
     },
     "env": {
       "intro_readonly": "에이전트 프로세스가 시작될 때 주입됩니다. 워크스페이스 소유자와 관리자만 값을 읽거나 수정할 수 있으며, 모든 공개와 수정은 워크스페이스 감사 로그에 기록됩니다.",
