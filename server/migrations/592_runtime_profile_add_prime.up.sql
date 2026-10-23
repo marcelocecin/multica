@@ -14,7 +14,7 @@
 -- below 583 would run *after* muse on any database that already applied it,
 -- and this rewritten CHECK would silently revoke the muse family.  A prefix
 -- above 583 runs after muse and must carry `muse` or it revokes that family.
--- 589 is the next free prefix after main.  440, 441, 444, 446, 451,
+-- 592 is the next free prefix after main.  440, 441, 444, 446, 451,
 -- 457, 468, 491, 500, 535, 545, 548 and 567 were each free when this migration
 -- was renumbered onto them, and each was then taken: 440 by
 -- 440_github_pr_head_sha_index (#7695), 441 by
@@ -36,8 +36,12 @@
 -- 585 (585_issue_workflow_owner), 586 (586_cloud_agent_connection, #9402),
 -- 587 (587_cloud_agent_connection_provider_index) and 588
 -- (588_daemon_token_owner, #9423).  Prefix 588 collided with that daemon
--- token migration, so this file is 589: above main's max (588) and below the
--- sibling plan-usage PR, which takes 590, 591 and 592.  501 adds the
+-- token migration, so this file was 589.  Prefixes 589, 590 and 591 were
+-- then taken on main by 589_member_delegation_day,
+-- 590_member_delegation_day_unique_index and
+-- 591_member_delegation_day_primary_key (#9435), so this file is 592:
+-- above main's max (591) and below the sibling plan-usage PR, which takes
+-- 593, 594 and 595.  501 adds the
 -- runtime_type column but leaves this constraint alone.
 ALTER TABLE runtime_profile DROP CONSTRAINT IF EXISTS runtime_profile_protocol_family_check;
 
